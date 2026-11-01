@@ -51,11 +51,6 @@ class FunASREngine:
         ):
             self._engine.set_input_padding(pad_seconds)
 
-    def to_device(self, device: str):
-        if hasattr(self._engine, "to_device"):
-            return self._engine.to_device(device)
-        return False
-
     def unload(self):
         if hasattr(self._engine, "unload"):
             self._engine.unload()

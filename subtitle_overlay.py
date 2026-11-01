@@ -1075,7 +1075,8 @@ class SubtitleOverlay(QWidget):
 
         self._ct_timer = QTimer(self)
         self._ct_timer.timeout.connect(self._check_click_through)
-        self._ct_timer.start(50)
+        if self._click_through:
+            self._ct_timer.start(50)
 
     def _schedule_pos_save(self):
         if not self.isVisible():
@@ -1241,8 +1242,13 @@ class SubtitleOverlay(QWidget):
 
     def _set_click_through(self, enabled: bool):
         self._click_through = enabled
-        if not enabled:
-            hwnd = int(self.winId())
+        if enabled:
+            if not self._ct_timer.isActive():
+                self._ct_timer.start(50)
+        else:
+            self._ct_timer.stop()
+            hwnd = getattr(self, "_hwnd", None) or int(self.winId())
+            self._hwnd = hwnd
             style = ctypes.windll.user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
             if style & _WS_EX_TRANSPARENT:
                 ctypes.windll.user32.SetWindowLongW(
@@ -1251,10 +1257,14 @@ class SubtitleOverlay(QWidget):
 
     def _check_click_through(self):
         if not self._click_through:
+            self._ct_timer.stop()
             return
         cursor = QCursor.pos()
         local = self.mapFromGlobal(cursor)
-        hwnd = int(self.winId())
+        hwnd = getattr(self, "_hwnd", None)
+        if hwnd is None:
+            hwnd = int(self.winId())
+            self._hwnd = hwnd
         style = ctypes.windll.user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
 
         scroll_top = self._scroll.mapTo(self, QPoint(0, 0)).y()

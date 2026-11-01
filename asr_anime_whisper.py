@@ -44,23 +44,6 @@ class AnimeWhisperEngine:
             log.info(f"AnimeWhisper is Japanese-only, ignoring language={language}")
         self.language = "ja"
 
-    def to_device(self, device: str):
-        try:
-            import torch
-
-            model = self._pipe.model
-            if device == "cpu":
-                model.to("cpu", dtype=torch.float32)
-            else:
-                model.to(device, dtype=torch.float16)
-            self._pipe.device = model.device
-            self._device = device
-            log.info(f"AnimeWhisper moved to {device}")
-            return True
-        except Exception as e:
-            log.warning(f"AnimeWhisper to_device failed: {e}")
-            return False
-
     def unload(self):
         if hasattr(self, "_pipe") and self._pipe is not None:
             try:

@@ -82,10 +82,6 @@ class ASREngine:
         if self._pad_quantum != old_quantum:
             self._log_input_padding()
 
-    def to_device(self, device: str):
-        # ctranslate2 doesn't support device migration; must reload
-        return False
-
     def unload(self):
         model = self._model
         self._model = None

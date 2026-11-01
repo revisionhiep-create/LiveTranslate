@@ -81,6 +81,7 @@ class AudioCapture:
         self._mic_native_channels = 1
         self._mic_restart_event = threading.Event()
         self._mic_buf = np.array([], dtype=np.float32)
+        self._resample_cache = {}
 
     def _get_wasapi_info(self):
         for i in range(self._pa.get_host_api_count()):
@@ -88,14 +89,6 @@ class AudioCapture:
             if "WASAPI" in info["name"]:
                 return info
         return None
-
-    def _get_default_output_name(self):
-        wasapi_info = self._get_wasapi_info()
-        if wasapi_info is None:
-            return None
-        default_idx = wasapi_info["defaultOutputDevice"]
-        default_dev = self._pa.get_device_info_by_index(default_idx)
-        return default_dev["name"]
 
     @staticmethod
     def _query_current_default():
@@ -243,17 +236,28 @@ class AudioCapture:
     def _resample_to_mono(self, data, native_channels, native_rate):
         """Convert raw bytes to mono float32 at self.sample_rate."""
         audio = np.frombuffer(data, dtype=np.float32)
-        if native_channels > 1:
+        if native_channels == 2:
+            audio = (audio[0::2] + audio[1::2]) * 0.5
+        elif native_channels > 1:
             audio = audio.reshape(-1, native_channels).mean(axis=1)
         if native_rate != self.sample_rate:
-            ratio = self.sample_rate / native_rate
-            n_out = int(len(audio) * ratio)
-            indices = np.arange(n_out) / ratio
-            indices = np.clip(indices, 0, len(audio) - 1)
-            idx_floor = indices.astype(np.int64)
-            idx_ceil = np.minimum(idx_floor + 1, len(audio) - 1)
-            frac = (indices - idx_floor).astype(np.float32)
-            audio = audio[idx_floor] * (1 - frac) + audio[idx_ceil] * frac
+            orig_len = len(audio)
+            cache_key = (orig_len, native_rate, self.sample_rate)
+            cached = self._resample_cache.get(cache_key)
+            if cached is None:
+                ratio = self.sample_rate / native_rate
+                n_out = int(orig_len * ratio)
+                indices = np.arange(n_out) / ratio
+                indices = np.clip(indices, 0, orig_len - 1)
+                idx_floor = indices.astype(np.int64)
+                idx_ceil = np.minimum(idx_floor + 1, orig_len - 1)
+                frac = (indices - idx_floor).astype(np.float32)
+                cached = (idx_floor, idx_ceil, 1.0 - frac, frac)
+                if len(self._resample_cache) > 16:
+                    self._resample_cache.clear()
+                self._resample_cache[cache_key] = cached
+            idx_floor, idx_ceil, w0, w1 = cached
+            audio = audio[idx_floor] * w0 + audio[idx_ceil] * w1
         return audio
 
     def _restart_stream(self):
@@ -379,7 +383,10 @@ class AudioCapture:
                         mic_16k = self._resample_to_mono(
                             mic_data, self._mic_native_channels, self._mic_native_rate
                         )
-                        self._mic_buf = np.concatenate([self._mic_buf, mic_16k])
+                        if len(self._mic_buf) == 0:
+                            self._mic_buf = mic_16k
+                        else:
+                            self._mic_buf = np.concatenate([self._mic_buf, mic_16k])
                 except Exception as e:
                     log.warning(f"Mic read error: {e}")
 
@@ -399,7 +406,7 @@ class AudioCapture:
                     mic_chunk = np.zeros(n, dtype=np.float32)
                     mic_chunk[: len(self._mic_buf)] = self._mic_buf
                     self._mic_buf = np.array([], dtype=np.float32)
-                mic_rms = float(np.sqrt(np.mean(mic_chunk**2)))
+                mic_rms = float(np.sqrt(np.dot(mic_chunk, mic_chunk) / len(mic_chunk)))
                 audio = loopback_audio + mic_chunk
 
             try:

@@ -131,7 +131,9 @@ class VADProcessor:
             return float(self._model(tensor, self.sample_rate).item())
 
     def _energy_confidence(self, audio_chunk: np.ndarray) -> float:
-        rms = float(np.sqrt(np.mean(audio_chunk**2)))
+        if len(audio_chunk) == 0:
+            return 0.0
+        rms = float(np.sqrt(np.dot(audio_chunk, audio_chunk) / len(audio_chunk)))
         return min(1.0, rms / (self.energy_threshold * 2))
 
     def _get_confidence(self, audio_chunk: np.ndarray) -> float:

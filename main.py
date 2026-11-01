@@ -2197,8 +2197,6 @@ def main():
     def _on_tray_model_switch(index):
         models = panel.get_settings().get("models", [])
         if 0 <= index < len(models):
-            from control_panel import _save_settings
-
             settings = panel.get_settings()
             settings["active_model"] = index
             panel._current_settings["active_model"] = index
@@ -2210,8 +2208,6 @@ def main():
     def on_overlay_model_switch(index):
         models = panel.get_settings().get("models", [])
         if 0 <= index < len(models):
-            from control_panel import _save_settings
-
             settings = panel.get_settings()
             settings["active_model"] = index
             panel._current_settings["active_model"] = index
@@ -2286,8 +2282,6 @@ def main():
         _asr_lang_actions[current_asr_lang].setChecked(True)
 
     def _on_tray_asr_lang(code):
-        from control_panel import _save_settings
-
         live_trans._set_asr_language(code)
         settings = panel.get_settings()
         settings["asr_language"] = code

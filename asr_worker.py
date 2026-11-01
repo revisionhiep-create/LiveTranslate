@@ -99,6 +99,7 @@ def _load_engine(config: dict):
 
     if hasattr(engine, "set_language"):
         engine.set_language(language)
+    engine._has_word_timestamps = "word_timestamps" in inspect.signature(engine.transcribe).parameters
     return engine
 
 
@@ -108,8 +109,7 @@ def _transcribe(engine, payload: dict):
         raise TypeError("transcribe payload audio must be a numpy.ndarray")
 
     kwargs = {}
-    signature = inspect.signature(engine.transcribe)
-    if "word_timestamps" in signature.parameters:
+    if getattr(engine, "_has_word_timestamps", False):
         kwargs["word_timestamps"] = bool(payload.get("word_timestamps", False))
     return engine.transcribe(audio, **kwargs)
 

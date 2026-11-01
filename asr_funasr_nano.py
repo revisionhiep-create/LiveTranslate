@@ -61,10 +61,6 @@ class FunASRNanoEngine:
         self.language = language if language != "auto" else None
         log.info(f"Fun-ASR-Nano language: {old} -> {self.language}")
 
-    def to_device(self, device: str):
-        self._model.model.to(device)
-        log.info(f"Fun-ASR-Nano moved to {device}")
-
     def unload(self):
         if hasattr(self, "_model") and self._model is not None:
             try:

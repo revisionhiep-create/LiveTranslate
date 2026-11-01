@@ -125,7 +125,7 @@ class FunASRNano(nn.Module):
                 ctc_tokenizer_class = tables.tokenizer_classes.get(ctc_tokenizer)
                 ctc_tokenizer = ctc_tokenizer_class(**ctc_tokenizer_conf)
                 self.ctc_tokenizer = ctc_tokenizer
-            assert ctc_tokenizer is not None, f"ctc_tokenizer must be set"
+            assert ctc_tokenizer is not None, "ctc_tokenizer must be set"
 
             ctc_vocab_size = kwargs.get("ctc_vocab_size", 60515)
             ctc_decoder_conf = kwargs.get("ctc_decoder_conf", {})
@@ -551,7 +551,7 @@ class FunASRNano(nn.Module):
     def get_prompt(self, hotwords: list[str], language: str = None, itn: bool = True):
         if len(hotwords) > 0:
             hotwords = ", ".join(hotwords)
-            prompt = f"请结合上下文信息，更加准确地完成语音转写任务。如果没有相关信息，我们会留空。\n\n\n**上下文信息：**\n\n\n"
+            prompt = "请结合上下文信息，更加准确地完成语音转写任务。如果没有相关信息，我们会留空。\n\n\n**上下文信息：**\n\n\n"
             prompt += f"热词列表：[{hotwords}]\n"
         else:
             prompt = ""

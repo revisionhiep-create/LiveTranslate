@@ -1082,7 +1082,7 @@ class ControlPanel(QWidget):
         self._cache_list.clear()
         self._cache_entries = results
         total = 0
-        for name, path, size in results:
+        for name, _path, size in results:
             total += size
             self._cache_list.addItem(f"{name}  —  {format_size(size)}")
         if not results:
@@ -1108,7 +1108,7 @@ class ControlPanel(QWidget):
         )
         if ret != QMessageBox.StandardButton.Yes:
             return
-        for name, path, _ in self._cache_entries:
+        for _name, path, _ in self._cache_entries:
             try:
                 shutil.rmtree(path)
                 log.info(f"Deleted: {path}")

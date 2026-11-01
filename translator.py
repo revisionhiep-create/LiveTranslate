@@ -143,18 +143,15 @@ def make_openai_client(
     kwargs = {"base_url": api_base, "api_key": api_key}
     if timeout is not None:
         kwargs["timeout"] = httpx.Timeout(timeout, connect=5.0)
-    if proxy == "system":
-        pass
-    elif proxy in ("none", "", None):
+    if proxy in ("none", "", None):
         kwargs["http_client"] = httpx.Client(trust_env=False)
-    else:
+    elif proxy != "system":
         kwargs["http_client"] = httpx.Client(proxy=proxy)
     return OpenAI(**kwargs)
 
 
 class RepetitionError(Exception):
     """Raised when model output contains repetition loops."""
-    pass
 
 
 _OVERRIDE_KEYS = (

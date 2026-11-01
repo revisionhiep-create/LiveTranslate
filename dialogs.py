@@ -71,9 +71,6 @@ def make_scroll_area(content: QWidget) -> QScrollArea:
     area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     return area
 
-SETTINGS_FILE = None  # set by control_panel on import
-_save_settings = None  # set by control_panel on import
-
 
 class _LogCapture(logging.Handler):
     """Captures log output and emits via callback."""

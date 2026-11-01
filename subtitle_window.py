@@ -927,9 +927,8 @@ class SubtitleWindow(QWidget):
             return
 
         lines_cfg = [ln for ln in self._settings.get("lines", []) if ln.get("enabled", True)]
-        wi = 0
 
-        for cfg in lines_cfg:
+        for wi, cfg in enumerate(lines_cfg):
             if wi >= len(self._text_widgets):
                 break
             tw = self._text_widgets[wi]
@@ -946,7 +945,7 @@ class SubtitleWindow(QWidget):
                             texts.append(tl_dict)
                     elif lang and lang in tl_dict:
                         texts.append(tl_dict[lang])
-                    elif "" in tl_dict and tl_dict[""]:
+                    elif tl_dict.get(""):
                         texts.append(tl_dict[""])
                     else:
                         for v in tl_dict.values():
@@ -954,7 +953,6 @@ class SubtitleWindow(QWidget):
                                 texts.append(v)
                                 break
             tw.set_text(" | ".join(texts) if len(texts) > 1 else (texts[0] if texts else ""))
-            wi += 1
 
     def get_target_languages(self) -> set:
         """Return set of unique target language codes from enabled translation lines."""

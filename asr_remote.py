@@ -67,11 +67,6 @@ class RemoteASREngine:
         self.language = language if language != "auto" else None
         log.info(f"Remote ASR language: {old} -> {self.language}")
 
-    def to_device(self, device: str):
-        # Remote server handles device management
-        log.info(f"Remote ASR ignores device change (server-side): {device}")
-        return True
-
     def unload(self):
         self._client.close()
         log.info("Remote ASR connection closed")

@@ -141,17 +141,6 @@ class SenseVoiceEngine:
         if self._pad_quantum != old_quantum:
             self._log_input_padding()
 
-    def to_device(self, device: str):
-        self._set_precision(device)
-        if self._use_fp16:
-            self._apply_model_precision()
-            self._model.model.to(device)
-        else:
-            self._model.model.to(device)
-            self._apply_model_precision()
-        self._update_runtime_kwargs(device)
-        log.info(f"SenseVoice moved to {device} (precision={self._precision})")
-
     def unload(self):
         if hasattr(self, "_model") and self._model is not None:
             try:
