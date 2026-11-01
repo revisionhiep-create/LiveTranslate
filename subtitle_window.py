@@ -15,8 +15,16 @@ from pathlib import Path
 import json
 
 from PyQt6.QtCore import (
-    Qt, QPoint, QRect, pyqtSignal, pyqtSlot, pyqtProperty,
-    QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QTimer,
+    Qt,
+    QPoint,
+    QRect,
+    pyqtSignal,
+    pyqtSlot,
+    pyqtProperty,
+    QPropertyAnimation,
+    QParallelAnimationGroup,
+    QEasingCurve,
+    QTimer,
 )
 from PyQt6.QtGui import (
     QColor,
@@ -46,6 +54,7 @@ def _resolve_image_path(path: str) -> str:
         return str(p) if p.exists() else ""
     resolved = Path(__file__).parent / p
     return str(resolved) if resolved.exists() else ""
+
 
 # Default subtitle window settings
 DEFAULT_SUBTITLE_WIN_SETTINGS = {
@@ -179,7 +188,9 @@ class _SubtitleTextWidget(QWidget):
     slide_offset_y = pyqtProperty(float, _get_slide_offset_y, _set_slide_offset_y)
 
     def set_config(self, cfg: dict):
-        self._font = QFont(cfg.get("font_family", "Microsoft YaHei"), cfg.get("font_size", 24))
+        self._font = QFont(
+            cfg.get("font_family", "Microsoft YaHei"), cfg.get("font_size", 24)
+        )
         c = QColor(cfg.get("color", "#FFFFFF"))
         c.setAlpha(cfg.get("opacity", 255))
         self._color = c
@@ -228,7 +239,10 @@ class _SubtitleTextWidget(QWidget):
             self.animate_in()
 
     def _stop_all_animations(self):
-        if self._anim_group and self._anim_group.state() != self._anim_group.State.Stopped:
+        if (
+            self._anim_group
+            and self._anim_group.state() != self._anim_group.State.Stopped
+        ):
             self._anim_group.stop()
         self._anim_group = None
 
@@ -375,7 +389,7 @@ class _SubtitleTextWidget(QWidget):
             # Prefer breaking at word/punctuation boundary
             break_at = best
             for j in range(best - 1, max(best // 2, 0), -1):
-                if text[j] in ' ,，。、!！?？;；:：.':
+                if text[j] in " ,，。、!！?？;；:：.":
                     break_at = j + 1
                     break
 
@@ -451,8 +465,13 @@ class _SubtitleTextWidget(QWidget):
             y += fm.lineSpacing()
 
         if self._outline_enabled and self._outline_width > 0:
-            pen = QPen(self._outline_color, self._outline_width * 2,
-                       Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            pen = QPen(
+                self._outline_color,
+                self._outline_width * 2,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
@@ -536,7 +555,12 @@ class SubtitleWindow(QWidget):
     def _is_pos_visible(x, y, margin=50):
         for screen in QApplication.screens():
             geo = screen.availableGeometry()
-            if geo.left() <= x + margin and x < geo.right() and geo.top() <= y + margin and y < geo.bottom():
+            if (
+                geo.left() <= x + margin
+                and x < geo.right()
+                and geo.top() <= y + margin
+                and y < geo.bottom()
+            ):
                 return True
         return False
 
@@ -548,7 +572,11 @@ class SubtitleWindow(QWidget):
         if screen is None:
             screen = QApplication.primaryScreen()
         geo = screen.availableGeometry()
-        h = self._calc_target_height() if hasattr(self, "_content_layout") else self.height()
+        h = (
+            self._calc_target_height()
+            if hasattr(self, "_content_layout")
+            else self.height()
+        )
         nx = max(geo.left(), min(x, geo.right() - 100))
         ny = max(geo.top(), min(y, geo.bottom() - h))
         self.move(nx, ny)
@@ -577,7 +605,11 @@ class SubtitleWindow(QWidget):
             screen = QApplication.primaryScreen()
 
         geo = screen.availableGeometry()
-        h = self._calc_target_height() if hasattr(self, "_content_layout") else self.height()
+        h = (
+            self._calc_target_height()
+            if hasattr(self, "_content_layout")
+            else self.height()
+        )
         nx = max(geo.left(), min(x, geo.right() - 100))
         ny = max(geo.top(), min(y, geo.bottom() - h))
         self.move(nx, ny)
@@ -595,8 +627,7 @@ class SubtitleWindow(QWidget):
 
     def _setup_ui(self):
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setWindowTitle("LiveTranslate Subtitle")
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -658,7 +689,9 @@ class SubtitleWindow(QWidget):
             else:
                 rgba = _hex_to_rgba(color, opacity)
                 radius = s.get("border_radius", 8)
-                self._content.setStyleSheet(f"background: {rgba}; border-radius: {radius}px;")
+                self._content.setStyleSheet(
+                    f"background: {rgba}; border-radius: {radius}px;"
+                )
         self.update()
 
     def _calc_target_height(self):
@@ -676,7 +709,10 @@ class SubtitleWindow(QWidget):
         old_h = self.height()
         if new_h == old_h:
             return
-        if self._height_anim and self._height_anim.state() != QPropertyAnimation.State.Stopped:
+        if (
+            self._height_anim
+            and self._height_anim.state() != QPropertyAnimation.State.Stopped
+        ):
             self._height_anim.stop()
         self.setFixedHeight(new_h)
         self._clamp_to_screen()
@@ -686,7 +722,10 @@ class SubtitleWindow(QWidget):
         old_h = self.height()
         if new_h == old_h:
             return
-        if self._height_anim and self._height_anim.state() != QPropertyAnimation.State.Stopped:
+        if (
+            self._height_anim
+            and self._height_anim.state() != QPropertyAnimation.State.Stopped
+        ):
             self._height_anim.stop()
         self.setFixedHeight(new_h)
         self._clamp_to_screen()
@@ -811,8 +850,7 @@ class SubtitleWindow(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._drag_pos = (
-                event.globalPosition().toPoint()
-                - self.frameGeometry().topLeft()
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             )
             try:
                 self.grabMouse()
@@ -857,7 +895,9 @@ class SubtitleWindow(QWidget):
         if isinstance(translations, str):
             # Backward compat: wrap in dict with empty key
             translations = {"": translations}
-        self.update_text_signal.emit(original, json.dumps(translations, ensure_ascii=False))
+        self.update_text_signal.emit(
+            original, json.dumps(translations, ensure_ascii=False)
+        )
 
     @pyqtSlot(str, str)
     def _on_update_text(self, original: str, translations_json: str):
@@ -867,7 +907,11 @@ class SubtitleWindow(QWidget):
         # Respect minimum display time: delay if previous sentence was inserted recently
         now_ms = time.monotonic() * 1000
         elapsed = now_ms - self._last_insert_time
-        base_delay = max(0, int(self._min_display_ms - elapsed)) if self._last_insert_time > 0 else 0
+        base_delay = (
+            max(0, int(self._min_display_ms - elapsed))
+            if self._last_insert_time > 0
+            else 0
+        )
 
         if base_delay == 0:
             self._insert_sentence(original, translations)
@@ -875,7 +919,9 @@ class SubtitleWindow(QWidget):
             timer = QTimer(self)
             timer.setSingleShot(True)
             timer.setInterval(base_delay)
-            timer.timeout.connect(lambda o=original, t=translations: self._insert_sentence(o, t))
+            timer.timeout.connect(
+                lambda o=original, t=translations: self._insert_sentence(o, t)
+            )
             timer.start()
             self._pending_segment_timers.append(timer)
 
@@ -901,7 +947,6 @@ class SubtitleWindow(QWidget):
             timer.deleteLater()
         self._pending_segment_timers.clear()
 
-
     def _refresh_display(self):
         if not self._sentences:
             for tw in self._text_widgets:
@@ -909,7 +954,9 @@ class SubtitleWindow(QWidget):
             self._fit_height_snap()
             return
 
-        lines_cfg = [ln for ln in self._settings.get("lines", []) if ln.get("enabled", True)]
+        lines_cfg = [
+            ln for ln in self._settings.get("lines", []) if ln.get("enabled", True)
+        ]
 
         for wi, cfg in enumerate(lines_cfg):
             if wi >= len(self._text_widgets):
@@ -935,7 +982,9 @@ class SubtitleWindow(QWidget):
                             if v:
                                 texts.append(v)
                                 break
-            tw.set_text(" | ".join(texts) if len(texts) > 1 else (texts[0] if texts else ""))
+            tw.set_text(
+                " | ".join(texts) if len(texts) > 1 else (texts[0] if texts else "")
+            )
 
     def get_target_languages(self) -> set:
         """Return set of unique target language codes from enabled translation lines."""

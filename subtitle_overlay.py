@@ -1213,6 +1213,20 @@ class SubtitleOverlay(QWidget):
         self.setWindowFlags(flags)
         self._apply_taskbar_style()
         self.show()
+        self.raise_()
+        try:
+            hwnd = int(self.winId())
+            HWND_TOPMOST = -1
+            HWND_NOTOPMOST = -2
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_SHOWWINDOW = 0x0040
+            target = HWND_TOPMOST if enabled else HWND_NOTOPMOST
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, target, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+            )
+        except Exception:
+            pass
 
     def restore_options(
         self,
