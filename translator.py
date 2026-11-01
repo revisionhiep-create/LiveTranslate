@@ -7,6 +7,14 @@ import time
 import httpx
 from openai import OpenAI
 
+try:
+    from transformers.generation.streamers import TextIteratorStreamer
+except ImportError:
+    try:
+        from transformers import TextIteratorStreamer
+    except ImportError:
+        TextIteratorStreamer = None
+
 log = logging.getLogger("LiveTranslate.TL")
 
 _CJK_LANGS = {"zh", "ja", "ko"}
@@ -552,7 +560,31 @@ class LocalQwenTranslator:
     _shared_model = None
     _shared_tokenizer = None
     _shared_model_path = None
-    _model_lock = threading.Lock()
+    _shared_warmed_up = False
+    _model_lock = threading.RLock()
+
+    @classmethod
+    def is_warmed_up(cls) -> bool:
+        """Returns True if the shared local model is loaded and GPU kernels primed."""
+        return cls._shared_model is not None and cls._shared_warmed_up
+
+    def warmup(self):
+        """Pre-load model weights and warm up GPU kernels with a dummy inference pass."""
+        if LocalQwenTranslator._shared_warmed_up:
+            return
+        with LocalQwenTranslator._model_lock:
+            if LocalQwenTranslator._shared_warmed_up:
+                return
+            self._ensure_loaded()
+            log.info("Warming up local translation model CUDA kernels...")
+            try:
+                _ = self.translate("こんにちは", source_lang="ja")
+                self._last_prompt_tokens = 0
+                self._last_completion_tokens = 0
+                LocalQwenTranslator._shared_warmed_up = True
+                log.info("Local translation model warmup complete")
+            except Exception as e:
+                log.warning(f"Local translation model warmup pass error: {e}")
 
     def __init__(
         self,
@@ -728,11 +760,9 @@ class LocalQwenTranslator:
         return normalize_translation_text(clean, self._target_language)
 
     def translate_iter(self, text: str, source_lang: str = "auto"):
-        import threading
-        from transformers import TextIteratorStreamer
-
         if not text or not text.strip():
             return
+        self._ensure_loaded()
         prompt_str = self._build_prompt(text, source_lang)
         tok = LocalQwenTranslator._shared_tokenizer
         model = LocalQwenTranslator._shared_model
@@ -740,7 +770,14 @@ class LocalQwenTranslator:
         inputs = tok(prompt_str, return_tensors="pt").to(model.device)
         self._last_prompt_tokens = inputs.input_ids.shape[1]
 
-        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=False)
+        streamer_cls = TextIteratorStreamer
+        if streamer_cls is None:
+            try:
+                from transformers.generation.streamers import TextIteratorStreamer as streamer_cls
+            except ImportError:
+                from transformers import TextIteratorStreamer as streamer_cls
+
+        streamer = streamer_cls(tok, skip_prompt=True, skip_special_tokens=False)
         eos_ids = getattr(LocalQwenTranslator, "_eos_ids", [tok.eos_token_id])
         gen_kwargs = dict(
             **inputs,

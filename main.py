@@ -213,6 +213,7 @@ class LiveTranslateApp:
         self._asr_recycle_delta_mb = 2048
         self._target_language = config["translation"].get("target_language", "en")
         use_local_qwen = config["translation"].get("use_local_qwen", True)
+        self._translator_ready = threading.Event()
         if use_local_qwen:
             import torch
             from translator import LocalQwenTranslator
@@ -229,6 +230,10 @@ class LiveTranslateApp:
                 system_prompt=config["translation"].get("system_prompt"),
                 device=trans_device,
             )
+            if LocalQwenTranslator.is_warmed_up():
+                self._translator_ready.set()
+            else:
+                self._translator_ready.clear()
         else:
             self._translator = Translator(
                 api_base=config["translation"]["api_base"],
@@ -240,6 +245,7 @@ class LiveTranslateApp:
                 streaming=config["translation"]["streaming"],
                 system_prompt=config["translation"].get("system_prompt"),
             )
+            self._translator_ready.set()
         self._translator.set_context_turns(
             config["translation"].get("context_window", 0)
         )
@@ -524,6 +530,10 @@ class LiveTranslateApp:
             )
             self._input_price = 0
             self._output_price = 0
+            if LocalQwenTranslator.is_warmed_up():
+                self._translator_ready.set()
+            else:
+                self._translator_ready.clear()
             return
 
         self._translator = Translator(
@@ -550,6 +560,22 @@ class LiveTranslateApp:
         self._translator.set_context_turns(context_turns)
         self._input_price = model_config.get("input_price", 0)
         self._output_price = model_config.get("output_price", 0)
+        self._translator_ready.set()
+
+    def needs_translator_warmup(self) -> bool:
+        """Returns True if the active translator is a local model needing warmup."""
+        if hasattr(self, "_translator") and self._translator is not None:
+            if hasattr(self._translator, "is_warmed_up"):
+                return not self._translator.is_warmed_up()
+        return False
+
+    def warmup_translator(self):
+        """Warm up the active translator if it supports warmup."""
+        if hasattr(self, "_translator") and self._translator is not None:
+            if hasattr(self._translator, "warmup"):
+                self._translator.warmup()
+        if hasattr(self, "_translator_ready"):
+            self._translator_ready.set()
 
     def _switch_asr_engine(self, engine_type: str):
         settings = self._panel.get_settings() if self._panel else {}
@@ -1134,6 +1160,10 @@ class LiveTranslateApp:
     def _translate_async(self, msg_id, text, source_lang, extra_langs=None):
         """Translate text and update UI with streaming display."""
         try:
+            if hasattr(self, "_translator_ready") and not self._translator_ready.is_set():
+                if hasattr(self._translator, "warmup"):
+                    self._translator.warmup()
+                self._translator_ready.set()
             tl_start = time.perf_counter()
             translated = None
             first_token_time = None
@@ -2402,7 +2432,43 @@ def main():
 
     live_trans.set_memory_warning_callback(_on_memory_warning)
 
-    QTimer.singleShot(500, on_start)
+    def _startup_sequence():
+        if live_trans.needs_translator_warmup():
+            dlg = _ModelLoadDialog(t("qwen_warmup_msg"), parent=overlay)
+            dlg.setWindowTitle(t("qwen_warmup_title"))
+            warmup_done = threading.Event()
+
+            def _warmup_worker():
+                try:
+                    live_trans.warmup_translator()
+                except Exception as e:
+                    log.error(f"Warmup failed: {e}", exc_info=True)
+                finally:
+                    warmup_done.set()
+
+            t_warm = threading.Thread(target=_warmup_worker, daemon=True)
+            t_warm.start()
+
+            poll_timer = QTimer()
+            def _check():
+                if warmup_done.is_set():
+                    poll_timer.stop()
+                    dlg.accept()
+            poll_timer.setInterval(100)
+            poll_timer.timeout.connect(_check)
+            poll_timer.start()
+
+            res = dlg.exec()
+            poll_timer.stop()
+            if res == QDialog.DialogCode.Accepted:
+                on_start()
+            else:
+                on_quit()
+        else:
+            live_trans.warmup_translator()
+            on_start()
+
+    QTimer.singleShot(500, _startup_sequence)
 
     signal.signal(signal.SIGINT, lambda *_: on_quit())
     timer = QTimer()

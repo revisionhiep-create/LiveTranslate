@@ -218,3 +218,53 @@ def test_local_qwen_translator_scrubs_thinking_tags(monkeypatch):
 
     assert result == "Hello!"
     assert "<think>" not in result
+
+
+def test_local_qwen_warmup_primes_model_and_usage(monkeypatch):
+    import torch
+    from translator import LocalQwenTranslator
+    from unittest.mock import MagicMock
+
+    mock_tok = MagicMock()
+    mock_model = MagicMock()
+    mock_model.device = "cpu"
+
+    mock_tok.return_value = MagicMock(input_ids=torch.zeros((1, 5), dtype=torch.long))
+    mock_tok.return_value.to.return_value = mock_tok.return_value
+    mock_model.generate.return_value = torch.zeros((1, 8), dtype=torch.long)
+    mock_tok.decode.return_value = "Hello"
+
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_tokenizer", mock_tok)
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model", mock_model)
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model_path", "Qwen/Qwen3.5-4B")
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_warmed_up", False)
+
+    translator = LocalQwenTranslator(model_name_or_path="Qwen/Qwen3.5-4B", target_language="en")
+    assert LocalQwenTranslator.is_warmed_up() is False
+
+    translator.warmup()
+    assert LocalQwenTranslator.is_warmed_up() is True
+    # Warmup dummy pass resets token usage counters
+    assert translator.last_usage == (0, 0)
+
+
+def test_app_translator_warmup_coordination(monkeypatch):
+    from unittest.mock import MagicMock
+    from main import LiveTranslateApp
+    from translator import LocalQwenTranslator
+
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_warmed_up", False)
+    mock_translator = MagicMock()
+    mock_translator.is_warmed_up.return_value = False
+
+    app = LiveTranslateApp.__new__(LiveTranslateApp)
+    import threading
+    app._translator_ready = threading.Event()
+    app._translator = mock_translator
+
+    assert app.needs_translator_warmup() is True
+    assert app._translator_ready.is_set() is False
+
+    app.warmup_translator()
+    assert mock_translator.warmup.called
+    assert app._translator_ready.is_set() is True
