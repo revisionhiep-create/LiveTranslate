@@ -1200,33 +1200,53 @@ class SubtitleOverlay(QWidget):
         try:
             hwnd = int(self.winId())
             style = ctypes.windll.user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
-            ctypes.windll.user32.SetWindowLongW(hwnd, -16, style | 0x00020000)  # WS_MINIMIZEBOX
+            ctypes.windll.user32.SetWindowLongW(
+                hwnd, -16, style | 0x00020000 | 0x00080000
+            )  # WS_MINIMIZEBOX | WS_SYSMENU
         except Exception:
             pass
 
     def _set_topmost(self, enabled: bool):
+        try:
+            from ctypes import c_void_p, c_int, c_uint
+
+            user32 = ctypes.windll.user32
+            SetWindowPos = user32.SetWindowPos
+            SetWindowPos.argtypes = [c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_uint]
+            SetWindowPos.restype = c_int
+
+            hwnd = int(self.winId())
+            target = c_void_p(-1) if enabled else c_void_p(-2)
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            SetWindowPos(
+                c_void_p(hwnd), target, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            )
+            if enabled:
+                self.overrideWindowFlags(
+                    self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+                )
+            else:
+                self.overrideWindowFlags(
+                    self.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint
+                )
+            return
+        except Exception:
+            pass
+
+        # Fallback for non-Windows platforms
+        cur_pos = self.pos()
+        cur_size = self.size()
         flags = self.windowFlags()
         if enabled:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         else:
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
+        self.setGeometry(cur_pos.x(), cur_pos.y(), cur_size.width(), cur_size.height())
         self._apply_taskbar_style()
         self.show()
-        self.raise_()
-        try:
-            hwnd = int(self.winId())
-            HWND_TOPMOST = -1
-            HWND_NOTOPMOST = -2
-            SWP_NOMOVE = 0x0002
-            SWP_NOSIZE = 0x0001
-            SWP_SHOWWINDOW = 0x0040
-            target = HWND_TOPMOST if enabled else HWND_NOTOPMOST
-            ctypes.windll.user32.SetWindowPos(
-                hwnd, target, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
-            )
-        except Exception:
-            pass
 
     def restore_options(
         self,

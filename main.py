@@ -1932,16 +1932,16 @@ def main():
 
     overlay = SubtitleOverlay(config["subtitle"])
     if saved:
+        overlay.restore_options(
+            click_through=saved.get("overlay_click_through", False),
+            topmost=saved.get("overlay_topmost", True),
+            auto_scroll=saved.get("overlay_auto_scroll", True),
+        )
         overlay.restore_geometry(
             saved.get("overlay_x"),
             saved.get("overlay_y"),
             saved.get("overlay_w"),
             saved.get("overlay_h"),
-        )
-        overlay.restore_options(
-            click_through=saved.get("overlay_click_through", False),
-            topmost=saved.get("overlay_topmost", True),
-            auto_scroll=saved.get("overlay_auto_scroll", True),
         )
     overlay.show()
 
@@ -1967,20 +1967,25 @@ def main():
     live_trans.set_panel(panel)
 
     def _deferred_init():
-        panel._apply_settings()
-        models = panel.get_settings().get("models", [])
-        active_idx = panel.get_settings().get("active_model", 0)
-        overlay.set_models(models, active_idx)
-        target = panel.get_settings().get("target_language", "en")
-        overlay.set_target_language(target)
-        asr_lang = panel.get_settings().get("asr_language", "auto")
-        overlay.set_source_language(asr_lang)
-        style = panel.get_settings().get("style")
-        if style:
-            overlay.apply_style(style)
-        active_model = panel.get_active_model()
-        if active_model:
-            live_trans._on_model_changed(active_model)
+        try:
+            panel._apply_settings()
+            models = panel.get_settings().get("models", [])
+            active_idx = panel.get_settings().get("active_model", 0)
+            overlay.set_models(models, active_idx)
+            target = panel.get_settings().get("target_language", "en")
+            overlay.set_target_language(target)
+            asr_lang = panel.get_settings().get("asr_language", "auto")
+            overlay.set_source_language(asr_lang)
+            style = panel.get_settings().get("style")
+            if style:
+                overlay.apply_style(style)
+            active_model = panel.get_active_model()
+            if active_model:
+                live_trans._on_model_changed(active_model)
+        except Exception as e:
+            log.error(f"Error in deferred init: {e}", exc_info=True)
+        finally:
+            QTimer.singleShot(50, _startup_sequence)
 
     QTimer.singleShot(100, _deferred_init)
 
@@ -2073,7 +2078,8 @@ def main():
     overlay.position_changed.connect(_save_overlay_pos)
 
     _is_quitting = [False]
-    subwin_toggle_action = QAction(t("subwin_show"), checkable=True)
+    subwin_toggle_action = QAction(t("subwin_show"))
+    subwin_toggle_action.setCheckable(True)
 
     def _save_subwin_state():
         settings = panel.get_settings()
@@ -2128,7 +2134,8 @@ def main():
     menu.addAction(subwin_toggle_action)
 
     # Quick toggle for subtitle-window click-through (mirrors the settings checkbox).
-    subwin_ct_action = QAction(t("subwin_click_through_tray"), checkable=True)
+    subwin_ct_action = QAction(t("subwin_click_through_tray"))
+    subwin_ct_action.setCheckable(True)
     _subwin_init = panel.get_settings().get("subtitle_mode") or {}
     subwin_ct_action.setChecked(bool(_subwin_init.get("click_through", False)))
 
@@ -2204,9 +2211,12 @@ def main():
     # --- Overlay submenu (click-through, topmost, auto-scroll) ---
     overlay_menu = QMenu(t("tray_menu_overlay"))
 
-    ct_action = QAction(t("click_through"), checkable=True)
-    topmost_action = QAction(t("top_most"), checkable=True)
-    autoscroll_action = QAction(t("auto_scroll"), checkable=True)
+    ct_action = QAction(t("click_through"))
+    ct_action.setCheckable(True)
+    topmost_action = QAction(t("top_most"))
+    topmost_action.setCheckable(True)
+    autoscroll_action = QAction(t("auto_scroll"))
+    autoscroll_action.setCheckable(True)
 
     ct_action.setChecked(bool((saved or {}).get("overlay_click_through", False)))
     topmost_action.setChecked(bool((saved or {}).get("overlay_topmost", True)))
@@ -2269,7 +2279,8 @@ def main():
         active = settings.get("active_model", 0)
         for i, m in enumerate(models):
             name = m.get("name", m.get("model", "?"))
-            action = QAction(name, checkable=True)
+            action = QAction(name)
+            action.setCheckable(True)
             if i == active:
                 action.setChecked(True)
             model_action_group.addAction(action)
@@ -2311,7 +2322,8 @@ def main():
     for code, native in LANGUAGES:
         if code == "auto":
             continue
-        action = QAction(f"{code} - {native}", checkable=True)
+        action = QAction(f"{code} - {native}")
+        action.setCheckable(True)
         lang_action_group.addAction(action)
         action.triggered.connect(lambda checked, lc=code: _on_tray_lang_switch(lc))
         if code in COMMON_LANG_CODES:
@@ -2348,7 +2360,8 @@ def main():
 
     for code, native in LANGUAGES:
         label = t("asr_lang_auto") if code == "auto" else native
-        action = QAction(f"{code} - {label}", checkable=True)
+        action = QAction(f"{code} - {label}")
+        action.setCheckable(True)
         asr_lang_action_group.addAction(action)
         action.triggered.connect(lambda checked, c=code: _on_tray_asr_lang(c))
         if code in COMMON_LANG_CODES:
@@ -2491,8 +2504,6 @@ def main():
         else:
             live_trans.warmup_translator()
             on_start()
-
-    QTimer.singleShot(500, _startup_sequence)
 
     signal.signal(signal.SIGINT, lambda *_: on_quit())
     timer = QTimer()

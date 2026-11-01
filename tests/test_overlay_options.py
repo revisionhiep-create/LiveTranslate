@@ -77,17 +77,20 @@ class TestOverlayOptions(unittest.TestCase):
         overlay = SubtitleOverlay(cfg)
         overlay.show()
         self.assertTrue(overlay.isVisible())
+        initial_pos = overlay.pos()
 
         # Uncheck topmost
         overlay._handle._topmost_check.setChecked(False)
         self.app.processEvents()
         self.assertTrue(overlay.isVisible(), "Overlay must stay visible after unchecking topmost")
+        self.assertEqual(overlay.pos(), initial_pos, "Overlay must not move when unchecking topmost")
         self.assertFalse(bool(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint))
 
         # Check topmost again
         overlay._handle._topmost_check.setChecked(True)
         self.app.processEvents()
         self.assertTrue(overlay.isVisible(), "Overlay must stay visible after re-checking topmost")
+        self.assertEqual(overlay.pos(), initial_pos, "Overlay must not move when re-checking topmost")
         self.assertTrue(bool(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint))
 
     def test_subwin_position_restore_and_move(self):
