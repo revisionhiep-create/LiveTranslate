@@ -6,18 +6,21 @@ when the in-memory message buffer rotates.
 """
 
 import logging
+import re
 import threading
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 log = logging.getLogger("LiveTranslate.Transcript")
 
 
 class TranscriptWriter:
     KINDS = ("original", "translation", "all")
+    DEFAULT_MAX_SESSIONS = 25
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path, max_sessions: int = DEFAULT_MAX_SESSIONS):
         self._base_dir = Path(base_dir)
+        self._max_sessions = int(max_sessions) if max_sessions is not None else self.DEFAULT_MAX_SESSIONS
         self._enabled = True
         self._lock = threading.Lock()
         self._files = {}
@@ -25,6 +28,73 @@ class TranscriptWriter:
         self._pending = {}  # msg_id -> (timestamp, original)
         self._opened = False
         self._session_ts = None
+        if self._max_sessions > 0:
+            try:
+                self.prune_old_transcripts(self._max_sessions)
+            except Exception as e:
+                log.warning(f"Failed to prune old transcripts on startup: {e}")
+
+    def prune_old_transcripts(self, max_sessions: int = DEFAULT_MAX_SESSIONS) -> int:
+        """Keep the newest `max_sessions` transcript sessions and delete older ones.
+
+        A session consists of all files matching `livetrans_<session_ts>_*`.
+        Returns the count of deleted files.
+        """
+        if max_sessions <= 0 or not self._base_dir.exists():
+            return 0
+
+        pattern = re.compile(r"^livetrans_(\d{8}_\d{6})(?:_.*)?\..+$")
+        sessions = {}
+
+        try:
+            entries = list(self._base_dir.iterdir())
+        except OSError as e:
+            log.warning(f"Could not scan transcript directory {self._base_dir}: {e}")
+            return 0
+
+        for p in entries:
+            if not p.is_file():
+                continue
+            m = pattern.match(p.name)
+            if m:
+                session_key = m.group(1)
+            elif p.name.startswith("livetrans_"):
+                try:
+                    session_key = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y%m%d_%H%M%S")
+                except OSError:
+                    continue
+            else:
+                continue
+
+            sessions.setdefault(session_key, []).append(p)
+
+        sorted_session_keys = sorted(sessions.keys())
+        if len(sorted_session_keys) <= max_sessions:
+            return 0
+
+        excess_count = len(sorted_session_keys) - max_sessions
+        old_sessions = sorted_session_keys[:excess_count]
+
+        with self._lock:
+            active_ts = self._session_ts
+
+        deleted_count = 0
+        for sess in old_sessions:
+            if active_ts and sess == active_ts:
+                continue
+            for file_path in sessions[sess]:
+                try:
+                    file_path.unlink(missing_ok=True)
+                    deleted_count += 1
+                except OSError as e:
+                    log.warning(f"Failed to delete old transcript file {file_path}: {e}")
+
+        if deleted_count > 0:
+            log.info(
+                f"Pruned {deleted_count} old transcript files across {excess_count} sessions "
+                f"(retaining latest {max_sessions} sessions)"
+            )
+        return deleted_count
 
     def set_enabled(self, enabled: bool):
         enabled = bool(enabled)
@@ -49,6 +119,11 @@ class TranscriptWriter:
         except OSError as e:
             log.error(f"Failed to create transcript dir {self._base_dir}: {e}")
             return
+        if self._max_sessions > 0:
+            try:
+                self.prune_old_transcripts(max(1, self._max_sessions - 1))
+            except Exception as e:
+                log.warning(f"Failed to prune old transcripts before opening session: {e}")
         self._session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         header_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for kind in self.KINDS:
