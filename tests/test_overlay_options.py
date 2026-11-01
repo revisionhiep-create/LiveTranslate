@@ -94,7 +94,7 @@ class TestOverlayOptions(unittest.TestCase):
         # Test restoring position near bottom of primary screen (e.g. under video)
         geo = self.app.primaryScreen().availableGeometry()
         target_x = geo.left() + 200
-        target_y = geo.bottom() - 100
+        target_y = geo.bottom() - 200
         subwin = SubtitleWindow({"window_x": target_x, "window_y": target_y})
         self.assertEqual(subwin.x(), target_x)
         self.assertEqual(subwin.y(), target_y)
@@ -108,6 +108,17 @@ class TestOverlayOptions(unittest.TestCase):
         self.assertEqual(subwin.y(), new_y)
         self.assertTrue(hasattr(subwin, "_pos_save_timer"))
         self.assertTrue(subwin._pos_save_timer.isActive())
+        subwin.close()
+
+    def test_subwin_position_stays_fixed_during_text_updates(self):
+        sub = SubtitleWindow({"window_x": 500, "window_y": 400})
+        sub.show()
+        self.assertEqual(sub.x(), 500)
+        self.assertEqual(sub.y(), 400)
+        sub.update_text("Hello", {"en": "Hello world"})
+        self.assertEqual(sub.x(), 500)
+        self.assertEqual(sub.y(), 400)
+        sub.close()
 
     def test_icon_exists_and_loads(self):
         root = Path(__file__).resolve().parent.parent

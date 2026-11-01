@@ -548,8 +548,9 @@ class SubtitleWindow(QWidget):
         if screen is None:
             screen = QApplication.primaryScreen()
         geo = screen.availableGeometry()
-        nx = max(geo.left(), min(x, geo.right() - self.width()))
-        ny = max(geo.top(), min(y, geo.bottom() - self.height()))
+        h = self._calc_target_height() if hasattr(self, "_content_layout") else self.height()
+        nx = max(geo.left(), min(x, geo.right() - 100))
+        ny = max(geo.top(), min(y, geo.bottom() - h))
         self.move(nx, ny)
 
     def restore_position(self, x=None, y=None):
@@ -576,8 +577,9 @@ class SubtitleWindow(QWidget):
             screen = QApplication.primaryScreen()
 
         geo = screen.availableGeometry()
+        h = self._calc_target_height() if hasattr(self, "_content_layout") else self.height()
         nx = max(geo.left(), min(x, geo.right() - 100))
-        ny = max(geo.top(), min(y, geo.bottom() - 30))
+        ny = max(geo.top(), min(y, geo.bottom() - h))
         self.move(nx, ny)
         self._last_saved_pos = (nx, ny)
 
@@ -602,9 +604,6 @@ class SubtitleWindow(QWidget):
 
         s = self._settings
         w = s.get("window_width", 1000)
-        saved_x = s.get("window_x")
-        saved_y = s.get("window_y")
-        self.restore_position(saved_x, saved_y)
         self.setFixedWidth(w)
 
         self._main_layout = QVBoxLayout(self)
@@ -623,7 +622,10 @@ class SubtitleWindow(QWidget):
         self._main_layout.addWidget(self._content)
 
         self._apply_background()
-        self._fit_height_animated()
+        self.setFixedHeight(self._calc_target_height())
+        saved_x = s.get("window_x")
+        saved_y = s.get("window_y")
+        self.restore_position(saved_x, saved_y)
         self.set_click_through(self._click_through)
 
     def _rebuild_text_widgets(self):
@@ -676,10 +678,8 @@ class SubtitleWindow(QWidget):
             return
         if self._height_anim and self._height_anim.state() != QPropertyAnimation.State.Stopped:
             self._height_anim.stop()
-        self.move(self.x(), self.y() - (new_h - old_h) // 2)
         self.setFixedHeight(new_h)
         self._clamp_to_screen()
-        self.position_changed.emit()
 
     def _fit_height_animated(self):
         new_h = self._calc_target_height()
@@ -688,25 +688,8 @@ class SubtitleWindow(QWidget):
             return
         if self._height_anim and self._height_anim.state() != QPropertyAnimation.State.Stopped:
             self._height_anim.stop()
-
-        target_y = self.y() - (new_h - old_h) // 2
-        self.setMinimumHeight(min(old_h, new_h))
-        self.setMaximumHeight(max(old_h, new_h))
-
-        anim = QPropertyAnimation(self, b"geometry")
-        anim.setDuration(150)
-        anim.setStartValue(QRect(self.x(), self.y(), self.width(), old_h))
-        anim.setEndValue(QRect(self.x(), target_y, self.width(), new_h))
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        def on_finished():
-            self.setFixedHeight(new_h)
-            self._clamp_to_screen()
-            self.position_changed.emit()
-        anim.finished.connect(on_finished)
-
-        self._height_anim = anim
-        anim.start()
+        self.setFixedHeight(new_h)
+        self._clamp_to_screen()
 
     def apply_settings(self, settings: dict):
         self._settings = _merge_settings(DEFAULT_SUBTITLE_WIN_SETTINGS, settings)
