@@ -212,16 +212,34 @@ class LiveTranslateApp:
         self._asr_worker_baseline_mb = None
         self._asr_recycle_delta_mb = 2048
         self._target_language = config["translation"].get("target_language", "en")
-        self._translator = Translator(
-            api_base=config["translation"]["api_base"],
-            api_key=config["translation"]["api_key"],
-            model=config["translation"]["model"],
-            target_language=self._target_language,
-            max_tokens=config["translation"]["max_tokens"],
-            temperature=config["translation"]["temperature"],
-            streaming=config["translation"]["streaming"],
-            system_prompt=config["translation"].get("system_prompt"),
-        )
+        use_local_qwen = config["translation"].get("use_local_qwen", True)
+        if use_local_qwen:
+            import torch
+            from translator import LocalQwenTranslator
+            from model_manager import get_local_translator_path
+
+            local_model = config["translation"].get("local_model", "Qwen/Qwen3.5-4B")
+            model_path = get_local_translator_path(local_model) or local_model
+            trans_device = self._asr_device if self._asr_device.startswith("cuda") else ("cuda" if torch.cuda.is_available() else "cpu")
+            self._translator = LocalQwenTranslator(
+                model_name_or_path=model_path,
+                target_language=self._target_language,
+                max_tokens=config["translation"]["max_tokens"],
+                temperature=config["translation"]["temperature"],
+                system_prompt=config["translation"].get("system_prompt"),
+                device=trans_device,
+            )
+        else:
+            self._translator = Translator(
+                api_base=config["translation"]["api_base"],
+                api_key=config["translation"]["api_key"],
+                model=config["translation"]["model"],
+                target_language=self._target_language,
+                max_tokens=config["translation"]["max_tokens"],
+                temperature=config["translation"]["temperature"],
+                streaming=config["translation"]["streaming"],
+                system_prompt=config["translation"].get("system_prompt"),
+            )
         self._translator.set_context_turns(
             config["translation"].get("context_window", 0)
         )
@@ -325,6 +343,10 @@ class LiveTranslateApp:
             self._incremental_enabled = settings["incremental_asr"]
         if "interim_interval" in settings:
             self._interim_interval = settings["interim_interval"]
+        if "use_local_qwen" in settings:
+            active_model = self._panel.get_active_model() if self._panel else None
+            if active_model:
+                self._on_model_changed(active_model)
         if "target_language" in settings:
             self._target_language = settings["target_language"]
             if self._translator:
@@ -474,6 +496,36 @@ class LiveTranslateApp:
         timeout = 10
         if self._panel:
             timeout = self._panel.get_settings().get("timeout", 10)
+
+        if model_config.get("local") or (self._panel and self._panel.get_settings().get("use_local_qwen")):
+            import torch
+            from translator import LocalQwenTranslator
+            from model_manager import get_local_translator_path
+
+            local_model = (
+                self._panel.get_settings().get("local_model")
+                if self._panel
+                else self._config.get("translation", {}).get("local_model", "Qwen/Qwen3.5-4B")
+            ) or "Qwen/Qwen3.5-4B"
+            model_path = get_local_translator_path(local_model) or local_model
+            device = (
+                self._panel.get_settings().get("asr_device", self._asr_device)
+                if self._panel
+                else self._asr_device
+            )
+            trans_device = device if (device and device.startswith("cuda")) else ("cuda" if torch.cuda.is_available() else "cpu")
+            self._translator = LocalQwenTranslator(
+                model_name_or_path=model_path,
+                target_language=self._target_language,
+                max_tokens=self._config["translation"]["max_tokens"],
+                temperature=self._config["translation"]["temperature"],
+                system_prompt=prompt,
+                device=trans_device,
+            )
+            self._input_price = 0
+            self._output_price = 0
+            return
+
         self._translator = Translator(
             api_base=model_config["api_base"],
             api_key=model_config["api_key"],
@@ -1789,7 +1841,7 @@ def main():
     _app_icon = create_app_icon()
     app.setWindowIcon(_app_icon)
 
-    # First launch → setup wizard (hub + download) → configure translation API
+    # First launch → setup wizard (hub + download)
     if not SETTINGS_FILE.exists():
         wizard = SetupWizardDialog()
         if wizard.exec() != QDialog.DialogCode.Accepted:
@@ -1797,36 +1849,12 @@ def main():
         saved = _load_saved_settings()
         log.info("Setup wizard completed")
 
-        # Prompt user to configure translation API
-        from dialogs import ModelEditDialog
-
-        info = QMessageBox(
-            QMessageBox.Icon.Information,
-            t("window_setup"),
-            t("setup_api_hint"),
-        )
-        info.exec()
-
-        dlg = ModelEditDialog(None, {
-            "name": "hunyuan-mt-chimera-7b",
-            "api_base": "http://127.0.0.1:1234/v1",
-            "api_key": "sk-lm-tHzDfNGm:dgxlip7eebn3HIMxivqN",
-            "model": "hunyuan-mt-chimera-7b",
-        })
-        dlg.setWindowTitle(t("setup_api_title"))
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            data = dlg.get_data()
-            if data.get("api_key"):
-                saved["models"] = [data]
-                saved["active_model"] = 0
-                _save_settings(saved)
-                log.info(f"Translation API configured: {data['name']}")
-        # If user skips, ControlPanel will create default placeholder from config.yaml
-
-    # Non-first launch but models missing → download dialog
+    # Check for missing models (ASR, Silero, or Local Qwen translator)
     else:
         saved = saved or {}
-        current_engine = saved.get("asr_engine", config["asr"].get("asr_engine", "funasr"))
+        current_engine = saved.get("asr_engine", config["asr"].get("asr_engine", "anime-whisper"))
+        use_local_qwen = saved.get("use_local_qwen", config.get("translation", {}).get("use_local_qwen", True))
+        local_qwen_model = saved.get("local_model", config.get("translation", {}).get("local_model", "Qwen/Qwen3.5-4B"))
         missing = get_missing_models(
             current_engine,
             (
@@ -1834,7 +1862,9 @@ def main():
                 if current_engine == "funasr"
                 else saved.get("whisper_model_size", config["asr"]["model_size"])
             ),
-            saved.get("hub", "ms"),
+            saved.get("hub", "hf"),
+            use_local_qwen=use_local_qwen,
+            local_qwen_model=local_qwen_model,
         )
         if missing:
             log.info(f"Missing models: {[m['name'] for m in missing]}")

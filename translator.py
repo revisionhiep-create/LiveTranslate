@@ -1,3 +1,4 @@
+import threading
 import json
 import logging
 import re
@@ -540,3 +541,209 @@ class Translator:
         result = self._normalize_output(result)
         self._warn_if_thinking_burned(result)
         return result
+
+
+class LocalQwenTranslator:
+    """In-process local LLM translation using Qwen models (e.g. Qwen3.5-4B).
+
+    Loads in no-thinking mode (enable_thinking=False) for instant subtitle translation.
+    """
+
+    _shared_model = None
+    _shared_tokenizer = None
+    _shared_model_path = None
+    _model_lock = threading.Lock()
+
+    def __init__(
+        self,
+        model_name_or_path: str = "Qwen/Qwen3.5-4B",
+        target_language: str = "en",
+        max_tokens: int = 256,
+        temperature: float = 0.3,
+        system_prompt: str | None = None,
+        device: str | None = None,
+        lazy: bool = True,
+    ):
+        self._model_name_or_path = model_name_or_path
+        self._target_language = target_language
+        self._max_tokens = max_tokens
+        self._temperature = temperature
+        self._system_prompt_template = system_prompt or DEFAULT_PROMPT
+        self._device = device
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
+        self._context_turns = 0
+        self._timeout = 10
+        if not lazy:
+            self._ensure_loaded()
+
+    def _ensure_loaded(self):
+        with LocalQwenTranslator._model_lock:
+            if (
+                LocalQwenTranslator._shared_model is not None
+                and LocalQwenTranslator._shared_model_path == self._model_name_or_path
+            ):
+                return
+            import torch
+            if not self._device:
+                self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            log.info(
+                f"Loading local translation model: {self._model_name_or_path} on {self._device}..."
+            )
+            import torch
+            from transformers import AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                self._model_name_or_path,
+                trust_remote_code=True,
+            )
+            dtype = torch.float16 if self._device.startswith("cuda") else torch.float32
+            try:
+                from transformers import Qwen3_5ForConditionalGeneration
+
+                model = Qwen3_5ForConditionalGeneration.from_pretrained(
+                    self._model_name_or_path,
+                    torch_dtype=dtype,
+                    device_map=self._device,
+                )
+            except Exception as e:
+                log.info(
+                    f"Qwen3_5ForConditionalGeneration load fallback to AutoModelForCausalLM: {e}"
+                )
+                from transformers import AutoModelForCausalLM
+
+                model = AutoModelForCausalLM.from_pretrained(
+                    self._model_name_or_path,
+                    torch_dtype=dtype,
+                    device_map=self._device,
+                    trust_remote_code=True,
+                )
+            model.eval()
+            LocalQwenTranslator._shared_tokenizer = tokenizer
+            LocalQwenTranslator._shared_model = model
+            LocalQwenTranslator._shared_model_path = self._model_name_or_path
+            log.info("Local translation model loaded successfully (thinking mode disabled)")
+
+    @property
+    def last_usage(self):
+        return self._last_prompt_tokens, self._last_completion_tokens
+
+    def set_target_language(self, target_language: str):
+        self._target_language = target_language
+
+    def set_system_prompt(self, prompt: str):
+        self._system_prompt_template = prompt
+
+    def set_timeout(self, timeout: float):
+        self._timeout = timeout
+
+    def set_context_turns(self, turns: int):
+        self._context_turns = turns
+
+    def with_target_language(self, target_language: str) -> "LocalQwenTranslator":
+        clone = LocalQwenTranslator.__new__(LocalQwenTranslator)
+        clone._model_name_or_path = self._model_name_or_path
+        clone._target_language = target_language
+        clone._max_tokens = self._max_tokens
+        clone._temperature = self._temperature
+        clone._system_prompt_template = self._system_prompt_template
+        clone._device = self._device
+        clone._last_prompt_tokens = 0
+        clone._last_completion_tokens = 0
+        clone._context_turns = self._context_turns
+        clone._timeout = self._timeout
+        return clone
+
+    def _build_prompt(self, text: str, source_lang: str = "auto") -> str:
+        self._ensure_loaded()
+        lang_name = LANGUAGE_DISPLAY.get(self._target_language, self._target_language)
+        src_name = LANGUAGE_DISPLAY.get(source_lang, source_lang)
+        sys_prompt = self._system_prompt_template.format(
+            source_lang=src_name,
+            target_lang=lang_name,
+            context="",
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": text},
+        ]
+        tok = LocalQwenTranslator._shared_tokenizer
+        try:
+            prompt_str = tok.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except Exception:
+            prompt_str = tok.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        return prompt_str
+
+    def translate(self, text: str, source_lang: str = "auto") -> str:
+        import torch
+
+        if not text or not text.strip():
+            return ""
+        prompt_str = self._build_prompt(text, source_lang)
+        tok = LocalQwenTranslator._shared_tokenizer
+        model = LocalQwenTranslator._shared_model
+
+        inputs = tok(prompt_str, return_tensors="pt").to(model.device)
+        prompt_len = inputs.input_ids.shape[1]
+        self._last_prompt_tokens = prompt_len
+
+        with torch.inference_mode():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=self._max_tokens,
+                temperature=self._temperature,
+                do_sample=self._temperature > 0,
+            )
+        new_ids = outputs[0][prompt_len:]
+        self._last_completion_tokens = len(new_ids)
+        raw_text = tok.decode(new_ids, skip_special_tokens=True).strip()
+
+        # Scrub any <think> tags if generated
+        clean = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+        return normalize_translation_text(clean, self._target_language)
+
+    def translate_iter(self, text: str, source_lang: str = "auto"):
+        import threading
+        from transformers import TextIteratorStreamer
+
+        if not text or not text.strip():
+            return
+        prompt_str = self._build_prompt(text, source_lang)
+        tok = LocalQwenTranslator._shared_tokenizer
+        model = LocalQwenTranslator._shared_model
+
+        inputs = tok(prompt_str, return_tensors="pt").to(model.device)
+        self._last_prompt_tokens = inputs.input_ids.shape[1]
+
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+        gen_kwargs = dict(
+            **inputs,
+            streamer=streamer,
+            max_new_tokens=self._max_tokens,
+            temperature=self._temperature,
+            do_sample=self._temperature > 0,
+        )
+        gen_thread = threading.Thread(target=model.generate, kwargs=gen_kwargs, daemon=True)
+        gen_thread.start()
+
+        accumulated = ""
+        comp_count = 0
+        for chunk in streamer:
+            comp_count += 1
+            accumulated += chunk
+            if "<think>" in accumulated and "</think>" not in accumulated:
+                continue
+            clean = re.sub(r"<think>.*?</think>", "", accumulated, flags=re.DOTALL).strip()
+            if clean:
+                yield normalize_translation_text(clean, self._target_language)
+        gen_thread.join()
+        self._last_completion_tokens = comp_count

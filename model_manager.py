@@ -72,6 +72,11 @@ ASR_MODEL_IDS = {
     "anime-whisper": "litagin/anime-whisper",
 }
 
+LOCAL_TRANSLATION_MODELS = {
+    "qwen3.5-4b": "Qwen/Qwen3.5-4B",
+    "Qwen/Qwen3.5-4B": "Qwen/Qwen3.5-4B",
+}
+
 FUNASR_MODEL_PROFILES = {
     "sensevoice-small": {
         "display_name": "SenseVoice Small",
@@ -453,7 +458,67 @@ def is_asr_cached(engine_type, model_size="medium", hub="ms") -> bool:
     return True
 
 
-def get_missing_models(engine, model_size, hub) -> list:
+
+def is_local_translator_cached(model_key: str = "qwen3.5-4b") -> bool:
+    """Return True if local Qwen translation model weights are present on disk."""
+    repo_id = LOCAL_TRANSLATION_MODELS.get(model_key, model_key)
+    if "/" not in repo_id:
+        return False
+    org, name = repo_id.split("/", 1)
+    # Check both project models cache and user huggingface cache
+    paths_to_check = [
+        MODELS_DIR / "huggingface" / "hub" / f"models--{org}--{name}" / "snapshots",
+        Path.home() / ".cache" / "huggingface" / "hub" / f"models--{org}--{name}" / "snapshots",
+    ]
+    for snap_root in paths_to_check:
+        if not snap_root.exists():
+            continue
+        for snap in snap_root.iterdir():
+            if not snap.is_dir():
+                continue
+            has_weights = any(f.suffix in (".safetensors", ".bin") for f in snap.iterdir())
+            has_config = (snap / "config.json").exists()
+            if has_weights and has_config:
+                return True
+    return False
+
+
+def get_local_translator_path(model_key: str = "qwen3.5-4b") -> str | None:
+    """Return local snapshot path for Qwen translator, or None."""
+    repo_id = LOCAL_TRANSLATION_MODELS.get(model_key, model_key)
+    if "/" not in repo_id:
+        return None
+    org, name = repo_id.split("/", 1)
+    paths_to_check = [
+        MODELS_DIR / "huggingface" / "hub" / f"models--{org}--{name}" / "snapshots",
+        Path.home() / ".cache" / "huggingface" / "hub" / f"models--{org}--{name}" / "snapshots",
+    ]
+    for snap_root in paths_to_check:
+        if not snap_root.exists():
+            continue
+        snaps = [p for p in snap_root.iterdir() if p.is_dir()]
+        if not snaps:
+            continue
+        for snap in sorted(snaps, reverse=True):
+            has_weights = any(f.suffix in (".safetensors", ".bin") for f in snap.iterdir())
+            if has_weights:
+                return str(snap.resolve())
+    return None
+
+
+def download_local_translator(model_key: str = "qwen3.5-4b", proxy=None):
+    """Download local Qwen translation model from Hugging Face."""
+    repo_id = LOCAL_TRANSLATION_MODELS.get(model_key, model_key)
+    hf_cache = str((MODELS_DIR / "huggingface" / "hub").resolve())
+    with _proxy_env(proxy):
+        from huggingface_hub import snapshot_download
+
+        log.info(f"Downloading local translation model {repo_id} from Hugging Face...")
+        snapshot_download(repo_id=repo_id, cache_dir=hf_cache)
+        log.info(f"Downloaded {repo_id}")
+
+
+def get_missing_models(engine, model_size, hub, use_local_qwen=False, local_qwen_model="qwen3.5-4b") -> list:
     missing = []
     if not is_silero_cached():
         missing.append(
@@ -461,6 +526,15 @@ def get_missing_models(engine, model_size, hub) -> list:
                 "name": "Silero VAD",
                 "type": "silero-vad",
                 "estimated_bytes": _MODEL_SIZE_BYTES["silero-vad"],
+            }
+        )
+    if use_local_qwen and not is_local_translator_cached(local_qwen_model):
+        missing.append(
+            {
+                "name": "Qwen3.5-4B (Local Translator)",
+                "type": "local-translator",
+                "model_key": local_qwen_model,
+                "estimated_bytes": 8_000_000_000,
             }
         )
     if not is_asr_cached(engine, model_size, hub):

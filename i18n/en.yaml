@@ -327,3 +327,7 @@ subwin_anim_slide_left: "Slide Left"
 subwin_anim_slide_right: "Slide Right"
 subwin_anim_slide_up: "Slide Up"
 subwin_anim_slide_down: "Slide Down"
+
+group_builtin_translation: "Local AI Translation"
+opt_use_builtin_qwen: "Use Built-in Local Model: Qwen3.5-4B (Hugging Face — No external software or API key needed)"
+desc_builtin_qwen: "Runs locally on your GPU without external software (LM Studio) or API keys. Thinking mode disabled for instant subtitles."

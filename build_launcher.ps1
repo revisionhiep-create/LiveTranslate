@@ -42,27 +42,52 @@ namespace LiveTranslateLauncher
 
                 string targetPython = File.Exists(pythonwExe) ? pythonwExe : (File.Exists(pythonExe) ? pythonExe : null);
 
-                if (targetPython == null)
-                {
-                    MessageBox.Show(
-                        "Virtual environment not found.\nPlease run install.bat first to set up the environment.",
-                        "LiveTranslate",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error
-                    );
-                    return 1;
-                }
-
                 string readyMarker = Path.Combine(venvDir, ".livetranslate-ready");
-                if (!File.Exists(readyMarker))
+                if (targetPython == null || !File.Exists(readyMarker))
                 {
-                    MessageBox.Show(
-                        "Virtual environment setup is incomplete.\nPlease run install.bat again to finish installing and verifying dependencies.",
-                        "LiveTranslate",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning
+                    DialogResult res = MessageBox.Show(
+                        "LiveTranslate requires a one-time environment setup to install dependencies (PyTorch/CUDA, ASR, translation).\n\nWould you like to start the automatic installation now?",
+                        "LiveTranslate - Initial Setup",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information
                     );
-                    return 1;
+                    if (res == DialogResult.Yes)
+                    {
+                        string installBat = Path.Combine(baseDir, "install.bat");
+                        if (!File.Exists(installBat))
+                        {
+                            MessageBox.Show("install.bat not found in " + baseDir, "LiveTranslate", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            return 1;
+                        }
+                        ProcessStartInfo instPsi = new ProcessStartInfo();
+                        instPsi.FileName = "cmd.exe";
+                        instPsi.Arguments = "/c \"" + installBat + "\"";
+                        instPsi.WorkingDirectory = baseDir;
+                        instPsi.UseShellExecute = true;
+                        using (Process instProc = Process.Start(instPsi))
+                        {
+                            if (instProc != null)
+                            {
+                                instProc.WaitForExit();
+                            }
+                        }
+                        // Recheck python and ready marker
+                        targetPython = File.Exists(pythonwExe) ? pythonwExe : (File.Exists(pythonExe) ? pythonExe : null);
+                        if (targetPython == null || !File.Exists(readyMarker))
+                        {
+                            MessageBox.Show(
+                                "Setup was not completed. You can run install.bat anytime.",
+                                "LiveTranslate",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning
+                            );
+                            return 1;
+                        }
+                    }
+                    else
+                    {
+                        return 0;
+                    }
                 }
 
                 string mainScript = Path.Combine(baseDir, "main.py");

@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QColorDialog,
     QComboBox,
     QDoubleSpinBox,
@@ -105,16 +106,16 @@ class ControlPanel(QWidget):
         else:
             tc = config["translation"]
             self._current_settings = {
-                "vad_mode": "silero",
-                "vad_threshold": config["asr"]["vad_threshold"],
-                "energy_threshold": 0.02,
-                "min_speech_duration": config["asr"]["min_speech_duration"],
-                "max_speech_duration": config["asr"]["max_speech_duration"],
-                "silence_mode": "auto",
-                "silence_duration": 0.8,
-                "asr_language": config["asr"].get("language", "auto"),
+                "vad_mode": config["asr"].get("vad_mode", "energy"),
+                "vad_threshold": config["asr"].get("vad_threshold", 0.10),
+                "energy_threshold": config["asr"].get("energy_threshold", 0.025),
+                "min_speech_duration": config["asr"].get("min_speech_duration", 0.40),
+                "max_speech_duration": config["asr"].get("max_speech_duration", 8.00),
+                "silence_mode": config["asr"].get("silence_mode", "fixed"),
+                "silence_duration": config["asr"].get("silence_duration", 0.50),
+                "asr_language": config["asr"].get("language", "ja"),
                 "target_language": tc.get("target_language", "en"),
-                "asr_engine": "funasr",
+                "asr_engine": config["asr"].get("asr_engine", "anime-whisper"),
                 "funasr_model": config["asr"].get(
                     "funasr_model", DEFAULT_FUNASR_MODEL
                 ),
@@ -125,6 +126,8 @@ class ControlPanel(QWidget):
                 "whisper_pad_seconds": config["asr"].get(
                     "whisper_pad_seconds", 0.5
                 ),
+                "use_local_qwen": tc.get("use_local_qwen", True),
+                "local_model": tc.get("local_model", "Qwen/Qwen3.5-4B"),
                 "models": [
                     {
                         "name": f"{tc['model']}",
@@ -134,8 +137,17 @@ class ControlPanel(QWidget):
                     }
                 ],
                 "active_model": 0,
-                "hub": "ms",
+                "hub": "hf",
             }
+
+        self._current_settings.setdefault(
+            "use_local_qwen",
+            config["translation"].get("use_local_qwen", True),
+        )
+        self._current_settings.setdefault(
+            "local_model",
+            config["translation"].get("local_model", "Qwen/Qwen3.5-4B"),
+        )
 
         if "models" not in self._current_settings:
             tc = config["translation"]
@@ -567,6 +579,34 @@ class ControlPanel(QWidget):
         btn_row.addWidget(del_btn)
         models_layout.addLayout(btn_row)
         layout.addWidget(models_group)
+
+        # Built-in Qwen Translator option
+        builtin_group = QGroupBox(t("group_builtin_translation"))
+        builtin_layout = QVBoxLayout(builtin_group)
+
+        self._use_local_qwen_cb = QCheckBox(t("opt_use_builtin_qwen"))
+        self._use_local_qwen_cb.setChecked(s.get("use_local_qwen", True))
+        builtin_layout.addWidget(self._use_local_qwen_cb)
+
+        desc_label = QLabel(t("desc_builtin_qwen"))
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #888899; font-size: 11px;")
+        builtin_layout.addWidget(desc_label)
+
+        def _on_local_qwen_toggled(checked):
+            self._current_settings["use_local_qwen"] = checked
+            self._model_list.setEnabled(not checked)
+            add_btn.setEnabled(not checked)
+            edit_btn.setEnabled(not checked)
+            dup_btn.setEnabled(not checked)
+            del_btn.setEnabled(not checked)
+            if hasattr(self, "_save_timer"):
+                self._auto_save()
+
+        self._use_local_qwen_cb.toggled.connect(_on_local_qwen_toggled)
+        _on_local_qwen_toggled(self._use_local_qwen_cb.isChecked())
+
+        layout.addWidget(builtin_group)
 
         prompt_group = QGroupBox(t("group_system_prompt"))
         prompt_layout = QVBoxLayout(prompt_group)
@@ -1488,6 +1528,8 @@ class ControlPanel(QWidget):
         self._current_settings["whisper_pad_seconds"] = round(
             self._whisper_pad_seconds.value(), 2
         )
+        if hasattr(self, "_use_local_qwen_cb"):
+            self._current_settings["use_local_qwen"] = self._use_local_qwen_cb.isChecked()
         prompt_text = self._prompt_edit.toPlainText().strip()
         if prompt_text:
             self._current_settings["system_prompt"] = prompt_text
@@ -1516,6 +1558,14 @@ class ControlPanel(QWidget):
         _save_settings(self._current_settings)
 
     def get_active_model(self) -> dict | None:
+        if self._current_settings.get("use_local_qwen", False):
+            return {
+                "name": "qwen3.5-4b",
+                "api_base": "local",
+                "api_key": "",
+                "model": "qwen3.5-4b",
+                "local": True,
+            }
         models = self._current_settings.get("models", [])
         idx = self._current_settings.get("active_model", 0)
         if 0 <= idx < len(models):

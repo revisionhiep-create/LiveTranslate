@@ -171,3 +171,50 @@ def test_thinking_disable_body_returns_fresh_dicts():
     first["thinking"]["type"] = "mutated"
 
     assert thinking_disable_body("deepseek") == {"thinking": {"type": "disabled"}}
+
+
+# ── Local Qwen Thinking Mode Disabled ──
+
+
+def test_local_qwen_translator_prompt_disables_thinking(monkeypatch):
+    from translator import LocalQwenTranslator
+    from unittest.mock import MagicMock
+
+    mock_tok = MagicMock()
+    mock_tok.apply_chat_template.return_value = "<system>sys</system><user>hi</user><think>\n\n</think>\n"
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_tokenizer", mock_tok)
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model", MagicMock())
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model_path", "Qwen/Qwen3.5-4B")
+
+    translator = LocalQwenTranslator(model_name_or_path="Qwen/Qwen3.5-4B", target_language="en")
+    prompt = translator._build_prompt("こんにちは", "ja")
+
+    assert mock_tok.apply_chat_template.called
+    call_kwargs = mock_tok.apply_chat_template.call_args.kwargs
+    assert call_kwargs.get("enable_thinking") is False
+
+
+def test_local_qwen_translator_scrubs_thinking_tags(monkeypatch):
+    import torch
+    from translator import LocalQwenTranslator
+    from unittest.mock import MagicMock
+
+    mock_tok = MagicMock()
+    mock_model = MagicMock()
+    mock_model.device = "cpu"
+
+    # Simulated token encoding and generation
+    mock_tok.return_value = MagicMock(input_ids=torch.zeros((1, 5), dtype=torch.long))
+    mock_tok.return_value.to.return_value = mock_tok.return_value
+    mock_model.generate.return_value = torch.zeros((1, 10), dtype=torch.long)
+    mock_tok.decode.return_value = "<think>Wait, how to say hello?</think>Hello!"
+
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_tokenizer", mock_tok)
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model", mock_model)
+    monkeypatch.setattr(LocalQwenTranslator, "_shared_model_path", "Qwen/Qwen3.5-4B")
+
+    translator = LocalQwenTranslator(model_name_or_path="Qwen/Qwen3.5-4B", target_language="en")
+    result = translator.translate("こんにちは", "ja")
+
+    assert result == "Hello!"
+    assert "<think>" not in result

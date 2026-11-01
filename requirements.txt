@@ -26,6 +26,7 @@ six>=1.16.0
 sentencepiece>=0.2.0
 tiktoken>=0.7.0
 transformers>=4.40.0
+accelerate>=0.26.0
 
 # VAD (bundles the Silero v5 model in the wheel — no GitHub/torch.hub download)
 silero-vad>=5.0

@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from model_manager import download_asr, download_silero
+from model_manager import download_asr, download_silero, download_local_translator
 from i18n import t, get_lang
 
 log = logging.getLogger("LiveTranslate.Dialogs")
@@ -311,7 +311,8 @@ class SetupWizardDialog(QDialog):
     def _download_worker(self, hub, proxy):
         try:
             download_silero(proxy=proxy)
-            download_asr("funasr", model_size="sensevoice-small", hub=hub, proxy=proxy)
+            download_asr("anime-whisper", hub=hub, proxy=proxy)
+            download_local_translator("qwen3.5-4b", proxy=proxy)
         except Exception as e:
             self._error = str(e)
             log.error(f"Download failed: {e}", exc_info=True)
@@ -339,17 +340,20 @@ class SetupWizardDialog(QDialog):
         settings = {
             "hub": hub,
             "download_proxy": self._proxy,
-            "asr_engine": "funasr",
-            "funasr_model": "sensevoice-small",
-            "vad_mode": "silero",
-            "vad_threshold": 0.3,
-            "energy_threshold": 0.02,
-            "min_speech_duration": 1.0,
+            "asr_engine": "anime-whisper",
+            "vad_mode": "energy",
+            "vad_threshold": 0.1,
+            "energy_threshold": 0.025,
+            "min_speech_duration": 0.4,
             "max_speech_duration": 8.0,
-            "silence_mode": "auto",
-            "silence_duration": 0.8,
-            "asr_language": "auto",
+            "silence_mode": "fixed",
+            "silence_duration": 0.5,
+            "asr_language": "ja",
             "target_language": "en",
+            "use_local_qwen": True,
+            "local_model": "Qwen/Qwen3.5-4B",
+            "incremental_asr": False,
+            "interim_interval": 1.0,
         }
         _save_settings(settings)
         QTimer.singleShot(500, self.accept)
@@ -428,6 +432,10 @@ class ModelDownloadDialog(QDialog):
             for m in self._missing:
                 if m["type"] == "silero-vad":
                     download_silero(proxy=self._proxy)
+                elif m["type"] == "local-translator":
+                    download_local_translator(
+                        m.get("model_key", "qwen3.5-4b"), proxy=self._proxy
+                    )
                 elif m["type"] in (
                     "sensevoice",
                     "funasr-nano",

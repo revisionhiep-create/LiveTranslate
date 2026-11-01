@@ -326,3 +326,7 @@ subwin_anim_slide_left: "从左滑入"
 subwin_anim_slide_right: "从右滑入"
 subwin_anim_slide_up: "从下滑入"
 subwin_anim_slide_down: "从上滑入"
+
+group_builtin_translation: "本地 AI 翻译"
+opt_use_builtin_qwen: "使用内置本地模型：Qwen3.5-4B (Hugging Face — 无需第三方软件或 API Key)"
+desc_builtin_qwen: "直接在本地 GPU 运行，无需启动 LM Studio 或配置 API Key。自动关闭思考模式以实现实时无延迟字幕输出。"
