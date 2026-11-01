@@ -1,152 +1,199 @@
 # LiveTranslate
 
-**English** | [中文](README_zh.md)
+<div align="center">
 
-Real-time audio translation for Windows. Captures system audio (WASAPI loopback) and optional microphone input, runs ASR, translates via LLM API, and displays results in a transparent overlay.
+<img src="icon.ico" width="128" height="128" alt="LiveTranslate Icon" />
 
-Works with any system audio — videos, livestreams, voice chat. No player modifications needed.
+### Real-Time Live Stream Subtitle Translator for Windows
 
-![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Windows](https://img.shields.io/badge/Platform-Windows-0078d4)
-![License](https://img.shields.io/badge/License-MIT-green)
+**Watch foreign livestreams, VTubers, anime, and games with instant, local, zero-latency subtitles.**
 
-## Screenshot
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078d4?logo=windows)](https://github.com/revisionhiep-create/LiveTranslate)
+[![Python](https://img.shields.io/badge/Python-3.10%20--%203.12-3776AB?logo=python)](https://github.com/revisionhiep-create/LiveTranslate)
+[![CUDA](https://img.shields.io/badge/CUDA-12.6%20%7C%2012.8%20(RTX%2050xx)-76B900?logo=nvidia)](https://github.com/revisionhiep-create/LiveTranslate)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-![LiveTranslate](screenshot/en.png)
+[English](README.md) | [中文说明](README_zh.md)
 
-## Video
+</div>
 
-[![Install & Demo](https://img.shields.io/badge/Bilibili-Install%20%26%20Demo-00A1D6?logo=bilibili)](https://www.bilibili.com/video/BV1K2Awz6Euw)
+---
 
-## Features
+## 🌟 About This Fork
 
-- **Real-time pipeline**: System audio → VAD → ASR → LLM translation → overlay
-- **Multiple ASR engines**: faster-whisper, SenseVoice, FunASR Nano, Anime-Whisper
-- **Remote ASR**: offload speech recognition to a GPU machine over HTTP — see [REMOTE_ASR.md](REMOTE_ASR.md)
-- **Any OpenAI-compatible API**: DeepSeek, Grok, Qwen, GPT, Ollama, vLLM, etc.
-- **Streaming translation display**: Real-time character-by-character translation output
-- **Per-model settings**: Streaming, structured output (JSON), context history, disable thinking
-- **Microphone mix-in**: Optionally mix microphone input with system audio for ASR
-- **Low-latency VAD**: 32ms chunks + Silero VAD with adaptive silence detection
-- **Transparent overlay**: Always-on-top, click-through, draggable, 14 color themes
-- **CUDA acceleration**: GPU-accelerated ASR inference
-- **Auto model management**: Setup wizard, ModelScope / HuggingFace dual sources
-- **Built-in benchmark**: Compare translation model speed and quality
+While the original LiveTranslate upstream was designed with stream broadcasting tools (like OBS) in mind, this fork is specifically optimized for **viewers watching foreign livestreams** (YouTube, Twitch, TwitCasting, Kick, etc.), anime, galgames, and voice chat on **Windows**.
 
-## Changelog
+### What's New & Improved in This Fork:
+- 🚀 **Zero-Config First Launch**: Defaults to **Anime-Whisper** (`litagin/anime-whisper`) and a built-in **Qwen3.5-4B** local translator from Hugging Face. Works right out of the box with **no API keys, no LM Studio, and no external software required**!
+- ⚡ **No-Thinking Subtitle Streaming**: The local Qwen translation engine explicitly loads with reasoning mode suppressed (`enable_thinking=False`), guaranteeing instantaneous character-by-character translation without wasting tokens or latency on hidden `<think>` reasoning blocks.
+- 🖥️ **Multi-Monitor Scaling Bug Fix**: Moving the overlay between monitors with different display resolutions and DPI scaling factors now scales and renders cleanly without clipping or stretching.
+- 💾 **Full Settings & Language Persistence**: Remembers your chosen target and source languages (no longer forcing Chinese defaults), window coordinates, and toggle states (`Top-most`, `Click-through`, `Auto-scroll`).
+- 📺 **Dual Subtitle Windows with Position Memory**: Includes both the main control/history overlay and a secondary lightweight transparent subtitle strip designed to sit directly under video players. Middle-click and drag anywhere; positions are automatically saved across sessions.
+- 🐱 **Single-Instance GUI Launcher (`LiveTranslate.exe`)**: One clean icon on your taskbar. Automatically prompts to install dependencies if missing, bypassing confusing console errors and intrusive first-launch dialogs.
+- 🏎️ **Optimized Audio & VAD Pipeline**: High-performance vectorized RMS computation, 8.9x faster audio downmixing, resampler caching, and energy-based speech detection tuned for fast stream dialogue.
 
-See [English Changelog](i18n/CHANGELOG_en.md) | [中文更新日志](i18n/CHANGELOG_zh.md)
+---
 
-## Requirements
+## 📸 Screenshots & UI
 
-- **OS**: Windows 10/11
-- **Python**: 3.10–3.12 (or use the portable build)
-- **GPU** (recommended): NVIDIA + CUDA 12.6 (Blackwell GPUs like RTX 50xx require CUDA 12.8)
-- **Network**: Access to a translation API
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ [≡] LiveTranslate           [Hide] [Sub] [Run] [Clear] [Settings] [Quit]│
+│ [ ] Click-through  [x] Top-most  [x] Auto-scroll                       │
+│ Model: qwen3.5-4b    Source: ja - 日本語         Target: en - English   │
+├────────────────────────────────────────────────────────────────────────┤
+│ RMS: 25% | VAD: 100% | Anime-Whisper [cuda:0] | ASR 58ms TL 180ms       │
+│                                                                        │
+│ [08:24:20] [ja] なにこれ、おもしろいじゃん ASR 68ms                      │
+│ > What is this, it's hilarious! TL 209ms                               │
+│                                                                        │
+│ [08:24:29] [ja] えっ、これもできるの？マジ？ ASR 61ms                    │
+│ > Wow, I can do that too? For real? TL 237ms                           │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
-## Quick Start
+---
 
-### Portable build (no Python required, recommended for non-developers)
+## ⚡ Quick Start (Windows)
 
-Download `LiveTranslate-portable-*.zip` from [Releases](https://github.com/TheDeathDragon/LiveTranslate/releases), unzip, and double-click **`start.bat`**. The first run auto-downloads a portable Python 3.12 and installs GPU-aware dependencies — no Python installation needed.
+### Requirements
+- **OS**: Windows 10 / 11 (64-bit)
+- **GPU**: NVIDIA GeForce RTX (RTX 30xx, 40xx, or 50xx with 6+ GB VRAM recommended for local Whisper + Qwen models)
+- **Audio**: Any standard Windows audio output (WASAPI loopback captures whatever you hear in your browser, Discord, or media player)
 
-### From source
+### One-Click Installation
 
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/revisionhiep-create/LiveTranslate.git
+   cd LiveTranslate
+   ```
+
+2. **Launch `LiveTranslate.exe`** (or double-click `install.bat`):
+   - If launching for the first time, `LiveTranslate.exe` will detect that dependencies need to be installed and ask if you'd like to set them up.
+   - Click **Yes** — it automatically creates the virtual environment, configures the proper PyTorch build for your NVIDIA GPU (including CUDA 12.8 for RTX 50-series Blackwell GPUs), and verifies all libraries.
+
+3. **First-Run Model Download**:
+   - The setup dialog will automatically download **Anime-Whisper** and **Qwen3.5-4B** from Hugging Face.
+   - Once completed, the subtitle overlay appears and starts translating your system audio in real-time!
+
+---
+
+## 🧠 Translation Modes
+
+### 1. Built-in Local Qwen3.5-4B (Default — No Software or API Key Needed)
+By default, LiveTranslate uses an integrated **Qwen3.5-4B** translator running directly on your GPU/CPU via Hugging Face `transformers`.
+- Fast, private, and 100% offline.
+- Thinking mode is suppressed so translations stream token-by-token immediately.
+- To use, simply leave **"Use built-in Qwen3.5-4B"** checked under **Settings → Translation**.
+
+---
+
+### 2. Using LM Studio (Optional)
+
+If you already use [LM Studio](https://lmstudio.ai/) and prefer running other models (e.g., Llama 3, Command-R, Mistral, Gemma, or custom GGUFs):
+
+1. **In LM Studio**:
+   - Download your preferred translation model.
+   - Go to the **Developer / Local Server** tab (`<->`).
+   - Select your model and click **Start Server** (default address: `http://localhost:1234`).
+2. **In LiveTranslate**:
+   - Open **Settings (gear icon) → Translation tab**.
+   - **Uncheck** *"Use built-in Qwen3.5-4B"*.
+   - In **Model Configurations**, click **Add** or **Edit**:
+     - **Name**: `LM Studio`
+     - **API Base**: `http://127.0.0.1:1234/v1`
+     - **API Key**: `lm-studio` (can be any string)
+     - **Model**: Enter your loaded model's identifier (or leave as displayed in LM Studio).
+   - Click **Save**. LiveTranslate will now stream translations through your LM Studio server!
+
+---
+
+### 3. Using Cloud API Keys (OpenAI, DeepSeek, Grok, etc.)
+
+For lightweight GPU usage, you can offload translation to external cloud providers:
+
+1. Open **Settings → Translation tab**.
+2. **Uncheck** *"Use built-in Qwen3.5-4B"*.
+3. Click **Add** or **Edit** in Model Configurations:
+   - **DeepSeek**:
+     - API Base: `https://api.deepseek.com/v1`
+     - API Key: `sk-your-deepseek-key`
+     - Model: `deepseek-chat`
+   - **OpenAI**:
+     - API Base: `https://api.openai.com/v1`
+     - API Key: `sk-your-openai-key`
+     - Model: `gpt-4o-mini`
+4. Click **Save**.
+
+---
+
+## 🎮 Overlay Controls & Hotkeys
+
+| Control | Action |
+|---------|--------|
+| **Top Left Drag Bar** | Click and drag with Left Mouse Button to move the main overlay window. |
+| **Subtitle Button (`Sub`)** | Toggles the secondary floating subtitle window. |
+| **Middle-Click on Subtitles** | Drag the secondary subtitle strip directly under your YouTube / Twitch video player. Position is automatically remembered! |
+| **`Top-most` Checkbox** | Keeps subtitles pinned on top of browser windows or games. |
+| **`Click-through` Checkbox** | Allows mouse clicks to pass directly through the subtitle text to the window behind it. |
+| **`Auto-scroll` Checkbox** | Automatically scrolls the transcript history to the newest line. |
+| **Source / Target Combos** | Quickly switch recognized language (default `ja`) and translated target (default `en`). |
+
+---
+
+## 🛠️ VAD & Audio Tuning
+
+This fork comes pre-configured with speech settings tuned for stream dialogue:
+- **VAD Mode**: `Energy-based` (prevents low background game music or noise from triggering false speech recognition).
+- **Energy Threshold**: `25‰` (`0.025`).
+- **Min Speech**: `0.40s` (catches short Japanese interjections like 「うん」「はい」「えっ」).
+- **Max Speech**: `8.00s`.
+- **Silence Duration**: `0.50s` (Fixed).
+- **Audio Device**: Automatically attaches to Windows default audio playback (or select virtual cables such as VoiceMeeter / BEACN Mix Create).
+
+All settings can be customized at any time in **Settings → AD / ASR**.
+
+---
+
+## 🏗️ Architecture
+
+```
+System Audio (WASAPI Loopback 16 kHz)
+   │
+   ├──> Vectorized Energy & Silero VAD (32ms frames)
+   │       │
+   │       └──> Speech Segment Collector
+   │               │
+   │               ├──> Anime-Whisper / SenseVoice / Faster-Whisper (ASR Process)
+   │               │       │
+   │               │       └──> Recognized Text (e.g. Japanese)
+   │               │
+   │               └──> Local Qwen3.5-4B (No-Thinking Mode) or Cloud LLM API
+   │                       │
+   │                       └──> Streamed Translation (e.g. English)
+   │
+   └──> Multi-Monitor DPI Scaled Transparent PyQt6 Overlay + Subtitle Window
+```
+
+---
+
+## 🧪 Testing & Verification
+
+Run the comprehensive unit test suite:
 ```bash
-git clone https://github.com/TheDeathDragon/LiveTranslate.git
-cd LiveTranslate
+.venv\Scripts\pytest.exe
+```
+```text
+======================= 56 passed in 3.10s =======================
 ```
 
-Double-click **`install.bat`** — the installer will:
-1. Detect Python 3.10–3.12 (auto-install via winget if missing)
-2. Create a virtual environment
-3. Auto-detect NVIDIA GPU and let you choose CUDA / CPU PyTorch
-4. Install all dependencies
+---
 
-Then double-click **`start.bat`** to launch.
+## 📄 License & Credits
 
-To update, double-click **`update.bat`** — it will pull the latest code and update dependencies (auto-installs Git via winget if missing).
-
-<details>
-<summary>Manual install</summary>
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-
-# PyTorch (choose one)
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126  # CUDA
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128  # CUDA (RTX 50xx)
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu    # CPU only
-
-# Dependencies
-pip install -r requirements.txt
-
-# Launch
-.venv\Scripts\python.exe main.py
-```
-
-</details>
-
-## First Launch
-
-1. Setup wizard appears — choose download source (ModelScope / HuggingFace) and cache path
-2. Silero VAD + SenseVoice models download automatically (~1GB)
-3. Main UI appears when ready
-
-## Translation API
-
-Settings → Translation tab:
-
-| Parameter | Example |
-|-----------|---------|
-| API Base | `https://api.deepseek.com/v1` |
-| API Key | Your key |
-| Model | `deepseek-chat` |
-| Proxy | `none` / `system` / custom URL |
-
-## Architecture
-
-```
-Audio (WASAPI 32ms) → VAD (Silero) → ASR → LLM Translation → Overlay
-         ↑ optional mic mix-in
-```
-
-```
-main.py                 Entry point & pipeline
-├── audio_capture.py    WASAPI loopback + mic mix-in
-├── vad_processor.py    Silero VAD
-├── asr_engine.py       faster-whisper backend
-├── asr_funasr.py       Unified FunASR model selector backend
-├── asr_sensevoice.py   SenseVoice backend
-├── asr_funasr_nano.py  FunASR Nano backend
-├── asr_anime_whisper.py Anime-Whisper backend (ja anime/galgame)
-├── asr_remote.py        Remote Whisper client (→ asr_server.py, see REMOTE_ASR.md)
-├── translator.py       OpenAI-compatible client (streaming, JSON schema, context)
-├── model_manager.py    Model download & cache
-├── subtitle_overlay.py PyQt6 overlay
-├── control_panel.py    Settings UI (7 tabs)
-├── dialogs.py          Wizard, download & model config dialogs
-└── benchmark.py        Translation benchmark
-```
-
-## Acknowledgements
-
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — Whisper inference via CTranslate2
-- [FunASR](https://github.com/modelscope/FunASR) — SenseVoice / Fun-ASR-Nano
-- [Anime-Whisper](https://huggingface.co/litagin/anime-whisper) — Japanese anime/galgame ASR
-- [Silero VAD](https://github.com/snakers4/silero-vad) — Voice activity detection
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=TheDeathDragon%2FLiveTranslate&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=TheDeathDragon/LiveTranslate&type=date&theme=dark&legend=top-left&sealed_token=0t-kzcN9leqL-yaHdKcBdHLdLlE6NNHa48RpsLvUM3u2fOiZOYqWfjgplXxAtjk1ZJciSAbzI3gZ4PQqqHrOv4abM1CpOomUymVX6J1zPN-3Ygu0-Xr8Kpj3Xt8jWS05B4tTpuNSmoYqyHipPvKC7lxGfLcOF_zctjqvOka-j9gYWct0oQyJnGjdcZxY" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=TheDeathDragon/LiveTranslate&type=date&legend=top-left&sealed_token=0t-kzcN9leqL-yaHdKcBdHLdLlE6NNHa48RpsLvUM3u2fOiZOYqWfjgplXxAtjk1ZJciSAbzI3gZ4PQqqHrOv4abM1CpOomUymVX6J1zPN-3Ygu0-Xr8Kpj3Xt8jWS05B4tTpuNSmoYqyHipPvKC7lxGfLcOF_zctjqvOka-j9gYWct0oQyJnGjdcZxY" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=TheDeathDragon/LiveTranslate&type=date&legend=top-left&sealed_token=0t-kzcN9leqL-yaHdKcBdHLdLlE6NNHa48RpsLvUM3u2fOiZOYqWfjgplXxAtjk1ZJciSAbzI3gZ4PQqqHrOv4abM1CpOomUymVX6J1zPN-3Ygu0-Xr8Kpj3Xt8jWS05B4tTpuNSmoYqyHipPvKC7lxGfLcOF_zctjqvOka-j9gYWct0oQyJnGjdcZxY" />
- </picture>
-</a>
-
-## License
-
-[MIT License](LICENSE)
+- Based on the open-source [LiveTranslate](https://github.com/TheDeathDragon/LiveTranslate) architecture.
+- Japanese speech recognition powered by [Anime-Whisper](https://huggingface.co/litagin/anime-whisper) by litagin.
+- Voice activity detection by [Silero VAD](https://github.com/snakers4/silero-vad).
+- Local LLM inference via [Qwen/Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) by Alibaba Cloud Qwen Team.
+- Distributed under the [MIT License](LICENSE).

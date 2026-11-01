@@ -1,3 +1,28 @@
+# Models & Downloaded Weights
+models/
+models/**
+.cache/
+.cache/**
+huggingface/
+modelscope/
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.gguf
+
+# User runtime settings and transcripts
+user_settings.json
+*.tmp
+transcripts/
+transcripts/**
+logs/
+logs/**
+
+# Python & virtual environment
 __pycache__/
 .pytest_cache/
 *.pyc
@@ -6,24 +31,17 @@ __pycache__/
 .pip-cache/
 .uv-cache/
 .tmp/
-models/
-logs/
-docs/
-transcripts/
-user_settings.json
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Distribution
+# Distribution & Build
 dist/
 build/
 release/
