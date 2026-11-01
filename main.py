@@ -267,10 +267,16 @@ class LiveTranslateApp:
         self._mem_asr_call_count = 0
         self._mem_periodic_timer = None
         # Memory ceiling: warn once when combined RSS (main + ASR worker) exceeds
-        # threshold. The ASR backend now runs in a worker process and keeps
-        # native-side workspaces/caches that Python GC cannot always reclaim, so the
-        # ceiling must include the worker's RSS (see _mem_snapshot).
-        self._mem_threshold_mb = 4096
+        # threshold. Local LLMs (e.g. Qwen3.5-4B) naturally require 5-8GB+ combined
+        # memory with PyTorch and CUDA runtime, so scale dynamically with system RAM.
+        try:
+            total_ram_mb = psutil.virtual_memory().total / (1024 * 1024)
+        except Exception:
+            total_ram_mb = 16384
+        if use_local_qwen:
+            self._mem_threshold_mb = max(14336, int(total_ram_mb * 0.85))
+        else:
+            self._mem_threshold_mb = max(6144, int(total_ram_mb * 0.75))
         self._mem_warned = False
         self._mem_warning_callback = None
 
@@ -504,6 +510,12 @@ class LiveTranslateApp:
             timeout = self._panel.get_settings().get("timeout", 10)
 
         if model_config.get("local") or (self._panel and self._panel.get_settings().get("use_local_qwen")):
+            import psutil
+            try:
+                total_ram_mb = psutil.virtual_memory().total / (1024 * 1024)
+            except Exception:
+                total_ram_mb = 16384
+            self._mem_threshold_mb = max(14336, int(total_ram_mb * 0.85))
             import torch
             from translator import LocalQwenTranslator
             from model_manager import get_local_translator_path
@@ -1864,7 +1876,7 @@ def main():
     try:
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "TheDeathDragon.LiveTranslate"
+            "LiveTranslate.App"
         )
     except Exception:
         pass
@@ -2060,6 +2072,7 @@ def main():
 
     overlay.position_changed.connect(_save_overlay_pos)
 
+    _is_quitting = [False]
     subwin_toggle_action = QAction(t("subwin_show"), checkable=True)
 
     def _save_subwin_state():
@@ -2097,6 +2110,8 @@ def main():
 
     # Sync when subtitle window is manually closed (e.g. Alt+F4)
     def _on_subwin_closed():
+        if _is_quitting[0]:
+            return
         subwin_toggle_action.blockSignals(True)
         subwin_toggle_action.setChecked(False)
         subwin_toggle_action.blockSignals(False)
@@ -2107,6 +2122,7 @@ def main():
 
     # Restore subtitle window visibility from saved state
     if subwin_was_enabled:
+        _subwin_notified[0] = True
         subwin_toggle_action.setChecked(True)
 
     menu.addAction(subwin_toggle_action)
@@ -2381,6 +2397,7 @@ def main():
     quit_action = QAction(t("quit"))
 
     def on_quit():
+        _is_quitting[0] = True
         try:
             _save_overlay_pos()
             _save_subwin_state()
@@ -2389,8 +2406,15 @@ def main():
         live_trans.stop()
         app.quit()
 
-    app.aboutToQuit.connect(_save_subwin_state)
-    app.aboutToQuit.connect(_save_overlay_pos)
+    def _on_about_to_quit():
+        _is_quitting[0] = True
+        try:
+            _save_overlay_pos()
+            _save_subwin_state()
+        except Exception:
+            pass
+
+    app.aboutToQuit.connect(_on_about_to_quit)
 
     quit_action.triggered.connect(on_quit)
     menu.addAction(quit_action)

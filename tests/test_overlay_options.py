@@ -127,6 +127,20 @@ class TestOverlayOptions(unittest.TestCase):
         self.assertIn(32, sizes)
         self.assertIn(16, sizes)
 
+    def test_dynamic_memory_threshold(self):
+        from unittest.mock import MagicMock
+        from main import LiveTranslateApp
+
+        cfg_qwen = {"translation": {"use_local_qwen": True, "target_language": "en", "max_tokens": 64, "temperature": 0.3}, "audio": {"sample_rate": 16000, "chunk_duration": 0.5}, "asr": {"vad_threshold": 0.1, "min_speech_duration": 0.4, "max_speech_duration": 8.0, "device": "cpu", "model_size": "medium"}}
+        app_qwen = LiveTranslateApp.__new__(LiveTranslateApp)
+        import psutil
+        total_ram = psutil.virtual_memory().total / (1024 * 1024)
+        expected = max(14336, int(total_ram * 0.85))
+        app_qwen._mem_threshold_mb = expected
+        self.assertGreaterEqual(app_qwen._mem_threshold_mb, 14336)
+        # 5315 MB (as shown in user screenshot) should be well below the threshold
+        self.assertLess(5315, app_qwen._mem_threshold_mb)
+
 
 if __name__ == "__main__":
     unittest.main()
