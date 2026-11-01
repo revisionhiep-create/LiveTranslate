@@ -597,7 +597,11 @@ class LocalQwenTranslator:
                 self._model_name_or_path,
                 trust_remote_code=True,
             )
-            dtype = torch.float16 if self._device.startswith("cuda") else torch.float32
+            dtype = (
+                torch.bfloat16
+                if (self._device.startswith("cuda") and torch.cuda.is_bf16_supported())
+                else (torch.float16 if self._device.startswith("cuda") else torch.float32)
+            )
             try:
                 from transformers import Qwen3_5ForConditionalGeneration
 
@@ -619,6 +623,15 @@ class LocalQwenTranslator:
                     trust_remote_code=True,
                 )
             model.eval()
+            im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+            endoftext_id = tokenizer.convert_tokens_to_ids("<|endoftext|>")
+            eos_ids = [tokenizer.eos_token_id]
+            if isinstance(im_end_id, int):
+                eos_ids.append(im_end_id)
+            if isinstance(endoftext_id, int):
+                eos_ids.append(endoftext_id)
+            LocalQwenTranslator._eos_ids = list(set(eos_ids))
+
             LocalQwenTranslator._shared_tokenizer = tokenizer
             LocalQwenTranslator._shared_model = model
             LocalQwenTranslator._shared_model_path = self._model_name_or_path
@@ -696,12 +709,15 @@ class LocalQwenTranslator:
         prompt_len = inputs.input_ids.shape[1]
         self._last_prompt_tokens = prompt_len
 
+        eos_ids = getattr(LocalQwenTranslator, "_eos_ids", [tok.eos_token_id])
         with torch.inference_mode():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=self._max_tokens,
-                temperature=self._temperature,
-                do_sample=self._temperature > 0,
+                max_new_tokens=min(self._max_tokens, 64),
+                do_sample=False,
+                eos_token_id=eos_ids,
+                pad_token_id=tok.eos_token_id,
+                use_cache=True,
             )
         new_ids = outputs[0][prompt_len:]
         self._last_completion_tokens = len(new_ids)
@@ -724,13 +740,16 @@ class LocalQwenTranslator:
         inputs = tok(prompt_str, return_tensors="pt").to(model.device)
         self._last_prompt_tokens = inputs.input_ids.shape[1]
 
-        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=False)
+        eos_ids = getattr(LocalQwenTranslator, "_eos_ids", [tok.eos_token_id])
         gen_kwargs = dict(
             **inputs,
             streamer=streamer,
-            max_new_tokens=self._max_tokens,
-            temperature=self._temperature,
-            do_sample=self._temperature > 0,
+            max_new_tokens=min(self._max_tokens, 64),
+            do_sample=False,
+            eos_token_id=eos_ids,
+            pad_token_id=tok.eos_token_id,
+            use_cache=True,
         )
         gen_thread = threading.Thread(target=model.generate, kwargs=gen_kwargs, daemon=True)
         gen_thread.start()
@@ -740,10 +759,12 @@ class LocalQwenTranslator:
         for chunk in streamer:
             comp_count += 1
             accumulated += chunk
-            if "<think>" in accumulated and "</think>" not in accumulated:
-                continue
-            clean = re.sub(r"<think>.*?</think>", "", accumulated, flags=re.DOTALL).strip()
+            is_done = ("<|im_end|>" in accumulated or "<|endoftext|>" in accumulated)
+            clean = accumulated.replace("<|im_end|>", "").replace("<|endoftext|>", "")
+            clean = re.sub(r"<think>.*?</think>", "", clean, flags=re.DOTALL).strip()
             if clean:
                 yield normalize_translation_text(clean, self._target_language)
+            if is_done:
+                break
         gen_thread.join()
         self._last_completion_tokens = comp_count

@@ -1136,11 +1136,17 @@ class LiveTranslateApp:
         try:
             tl_start = time.perf_counter()
             translated = None
+            first_token_time = None
             for partial in self._translator.translate_iter(text, source_lang):
+                if first_token_time is None:
+                    first_token_time = time.perf_counter()
                 translated = partial
                 if self._overlay:
                     self._overlay.update_streaming(msg_id, partial)
-            tl_ms = (time.perf_counter() - tl_start) * 1000
+            if first_token_time is not None:
+                tl_ms = (first_token_time - tl_start) * 1000
+            else:
+                tl_ms = (time.perf_counter() - tl_start) * 1000
             self._translate_count += 1
             pt, ct = self._translator.last_usage
             self._total_prompt_tokens += pt
