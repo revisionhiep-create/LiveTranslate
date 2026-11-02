@@ -621,7 +621,7 @@ class LiveTranslateApp:
         compute = self._config["asr"]["compute_type"]
         if engine_type == "whisper":
             signature_model = cache_model_key
-        elif engine_type == "funasr":
+        elif engine_type in ("funasr", "sensevoice"):
             signature_model = funasr_model
         elif engine_type == "remote-whisper":
             # URL is part of the identity so editing it triggers a reconnect.
@@ -684,12 +684,12 @@ class LiveTranslateApp:
                     "sensevoice_pad_seconds",
                     self._config["asr"].get("sensevoice_pad_seconds", 0.5),
                 )
-                if engine_type == "funasr"
+                if engine_type in ("funasr", "sensevoice")
                 else settings.get(
                     "whisper_pad_seconds",
                     self._config["asr"].get("whisper_pad_seconds", 0.5),
                 )
-                if engine_type == "whisper"
+                if engine_type in ("whisper", "kotoba-whisper", "whisper-turbo", "anime-whisper")
                 else None
             ),
             "download_root": str((MODELS_DIR / "huggingface" / "hub").resolve()),
@@ -1900,7 +1900,9 @@ def main():
     # Check for missing models (ASR, Silero, or Local Qwen translator)
     else:
         saved = saved or {}
-        current_engine = saved.get("asr_engine", config["asr"].get("asr_engine", "anime-whisper"))
+        current_engine = saved.get("asr_engine", config["asr"].get("asr_engine", "kotoba-whisper"))
+        if current_engine == "anime-whisper":
+            current_engine = "kotoba-whisper"
         use_local_qwen = saved.get("use_local_qwen", config.get("translation", {}).get("use_local_qwen", True))
         local_qwen_model = saved.get("local_model", config.get("translation", {}).get("local_model", "Qwen/Qwen3.5-4B"))
         missing = get_missing_models(

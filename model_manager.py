@@ -69,7 +69,9 @@ ASR_MODEL_IDS = {
     "sensevoice": "iic/SenseVoiceSmall",
     "funasr-nano": "FunAudioLLM/Fun-ASR-Nano-2512",
     "funasr-mlt-nano": "FunAudioLLM/Fun-ASR-MLT-Nano-2512",
-    "anime-whisper": "litagin/anime-whisper",
+    "kotoba-whisper": "kotoba-tech/kotoba-whisper-v2.0-faster",
+    "whisper-turbo": "deepdml/faster-whisper-large-v3-turbo-ct2",
+    "anime-whisper": "kotoba-tech/kotoba-whisper-v2.0-faster",
 }
 
 LOCAL_TRANSLATION_MODELS = {
@@ -145,7 +147,9 @@ ASR_DISPLAY_NAMES = {
     "funasr-nano": "Fun-ASR-Nano",
     "funasr-mlt-nano": "Fun-ASR-MLT-Nano",
     "whisper": "Whisper",
-    "anime-whisper": "Anime-Whisper",
+    "kotoba-whisper": "Kotoba-Whisper v2.0",
+    "whisper-turbo": "Whisper Large-v3 Turbo",
+    "anime-whisper": "Kotoba-Whisper v2.0",
     "remote-whisper": "Remote-Whisper",
 }
 
@@ -159,16 +163,20 @@ _MODEL_SIZE_BYTES = {
     "whisper-small": 488_000_000,
     "whisper-medium": 1_530_000_000,
     "whisper-large-v3": 3_100_000_000,
-    "anime-whisper": 3_100_000_000,
+    "whisper-large-v3-turbo": 1_540_000_000,
+    "whisper-turbo": 1_540_000_000,
+    "kotoba-whisper": 1_440_000_000,
+    "anime-whisper": 1_440_000_000,
 }
 
-_WHISPER_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
+_WHISPER_SIZES = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
 
 _CACHE_MODELS = [
+    ("Kotoba-Whisper v2.0", "kotoba-whisper"),
+    ("Whisper Large-v3 Turbo", "whisper-turbo"),
     ("SenseVoice Small", "funasr", "sensevoice-small"),
     ("Fun-ASR-Nano", "funasr", "funasr-nano-2512"),
     ("Fun-ASR-MLT-Nano", "funasr", "funasr-mlt-nano-2512"),
-    ("Anime-Whisper", "anime-whisper"),
 ]
 
 
@@ -183,11 +191,13 @@ def normalize_funasr_model_key(model_key: str | None) -> str:
 def normalize_asr_engine_selection(
     engine_type: str | None, funasr_model: str | None = None
 ) -> tuple[str, str]:
+    if engine_type == "anime-whisper":
+        return "kotoba-whisper", normalize_funasr_model_key(funasr_model)
     if engine_type in FUNASR_LEGACY_ENGINE_ALIASES:
         return "funasr", FUNASR_LEGACY_ENGINE_ALIASES[engine_type]
     if engine_type == "funasr":
         return "funasr", normalize_funasr_model_key(funasr_model)
-    return engine_type or "funasr", normalize_funasr_model_key(funasr_model)
+    return engine_type or "kotoba-whisper", normalize_funasr_model_key(funasr_model)
 
 
 def migrate_funasr_settings(settings: dict | None) -> dict | None:
@@ -425,28 +435,27 @@ def is_asr_cached(engine_type, model_size="medium", hub="ms") -> bool:
             if not model_dir or not qwen_weights_present(model_dir):
                 return False
         return True
-    if engine_type == "anime-whisper":
-        # HF-only (not published to ModelScope). Check that snapshots dir actually
-        # contains weight files; an .incomplete blob means a prior run aborted mid-download.
-        model_id = ASR_MODEL_IDS[engine_type]
-        org, name = model_id.split("/")
-        snap_root = (
-            MODELS_DIR / "huggingface" / "hub" / f"models--{org}--{name}" / "snapshots"
+    if engine_type in ("kotoba-whisper", "anime-whisper"):
+        return _hf_repo_complete(
+            "kotoba-tech", "kotoba-whisper-v2.0-faster", min_bytes=int(1_400_000_000 * 0.5)
         )
-        if not snap_root.exists():
-            return False
-        for snap in snap_root.iterdir():
-            if not snap.is_dir():
-                continue
-            has_weights = any(
-                (snap / fn).exists()
-                for fn in ("model.safetensors", "pytorch_model.bin")
-            )
-            has_config = (snap / "config.json").exists()
-            if has_weights and has_config:
-                return True
-        return False
+    elif engine_type == "whisper-turbo":
+        return _hf_repo_complete(
+            "deepdml", "faster-whisper-large-v3-turbo-ct2", min_bytes=int(1_400_000_000 * 0.5)
+        ) or _hf_repo_complete(
+            "mobiuslabsgmbh", "faster-whisper-large-v3-turbo", min_bytes=int(1_400_000_000 * 0.5)
+        )
+    elif engine_type == "sensevoice":
+        ms_org, ms_name = "iic", "SenseVoiceSmall"
+        hf_org, hf_name = "FunAudioLLM", "SenseVoiceSmall"
+        return _ms_model_path(ms_org, ms_name).exists() or _hf_repo_complete(hf_org, hf_name)
     elif engine_type == "whisper":
+        if model_size in ("large-v3-turbo", "turbo"):
+            return _hf_repo_complete(
+                "deepdml", "faster-whisper-large-v3-turbo-ct2", min_bytes=int(1_400_000_000 * 0.5)
+            ) or _hf_repo_complete(
+                "mobiuslabsgmbh", "faster-whisper-large-v3-turbo", min_bytes=int(1_400_000_000 * 0.5)
+            )
         if model_size not in _WHISPER_SIZES:
             return resolve_custom_whisper_model(model_size) is not None
         min_bytes = int(
@@ -581,6 +590,20 @@ def get_local_model_path(engine_type, hub="ms", funasr_model: str | None = None)
         )
         ms_org, ms_name = funasr_model_id(model_key, "ms").split("/")
         hf_org, hf_name = funasr_model_id(model_key, "hf").split("/")
+    elif engine_type in ("kotoba-whisper", "anime-whisper"):
+        hf_org, hf_name = "kotoba-tech", "kotoba-whisper-v2.0-faster"
+        ms_org, ms_name = hf_org, hf_name
+    elif engine_type == "whisper-turbo":
+        snap_deepdml = MODELS_DIR / "huggingface" / "hub" / "models--deepdml--faster-whisper-large-v3-turbo-ct2" / "snapshots"
+        if snap_deepdml.exists():
+            snaps = sorted(snap_deepdml.iterdir())
+            if snaps:
+                return str(snaps[-1])
+        hf_org, hf_name = "mobiuslabsgmbh", "faster-whisper-large-v3-turbo"
+        ms_org, ms_name = hf_org, hf_name
+    elif engine_type == "sensevoice":
+        ms_org, ms_name = "iic", "SenseVoiceSmall"
+        hf_org, hf_name = "FunAudioLLM", "SenseVoiceSmall"
     elif engine_type in ASR_MODEL_IDS:
         ms_org, ms_name = asr_model_id(engine_type, "ms").split("/")
         hf_org, hf_name = asr_model_id(engine_type, "hf").split("/")
@@ -725,19 +748,40 @@ def download_asr(engine, model_size="medium", hub="ms", proxy="system"):
             neutralize_funasr_requirements(funasr_dir)
             if funasr_dir and funasr_profile(model_key)["family"] == "funasr-nano":
                 ensure_qwen_weights(funasr_dir, hub=hub)
-        elif engine == "anime-whisper":
-            # HF-only, ignore hub setting
+        elif engine in ("kotoba-whisper", "anime-whisper"):
             from huggingface_hub import snapshot_download
 
-            model_id = ASR_MODEL_IDS[engine]
+            model_id = "kotoba-tech/kotoba-whisper-v2.0-faster"
             log.info(f"Downloading {model_id} from HuggingFace...")
             snapshot_download(repo_id=model_id, cache_dir=hf_cache)
-        elif engine == "whisper":
-            if model_size not in _WHISPER_SIZES:
-                raise ValueError(f"Invalid local faster-whisper model: {model_size}")
+        elif engine == "whisper-turbo":
             from huggingface_hub import snapshot_download
 
-            model_id = f"Systran/faster-whisper-{model_size}"
+            model_id = "deepdml/faster-whisper-large-v3-turbo-ct2"
+            log.info(f"Downloading {model_id} from HuggingFace...")
+            snapshot_download(repo_id=model_id, cache_dir=hf_cache)
+        elif engine == "sensevoice":
+            if hub == "ms":
+                from modelscope import snapshot_download
+
+                model_id = "iic/SenseVoiceSmall"
+                log.info(f"Downloading {model_id} from ModelScope...")
+                snapshot_download(model_id=model_id, cache_dir=ms_cache)
+            else:
+                from huggingface_hub import snapshot_download
+
+                model_id = "FunAudioLLM/SenseVoiceSmall"
+                log.info(f"Downloading {model_id} from HuggingFace...")
+                snapshot_download(repo_id=model_id, cache_dir=hf_cache)
+        elif engine == "whisper":
+            from huggingface_hub import snapshot_download
+
+            if model_size in ("large-v3-turbo", "turbo"):
+                model_id = "deepdml/faster-whisper-large-v3-turbo-ct2"
+            elif model_size not in _WHISPER_SIZES:
+                raise ValueError(f"Invalid local faster-whisper model: {model_size}")
+            else:
+                model_id = f"Systran/faster-whisper-{model_size}"
             log.info(f"Downloading {model_id} from HuggingFace...")
             snapshot_download(repo_id=model_id, cache_dir=hf_cache)
     log.info(f"ASR model downloaded: {engine}")

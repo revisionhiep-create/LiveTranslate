@@ -311,7 +311,7 @@ class SetupWizardDialog(QDialog):
     def _download_worker(self, hub, proxy):
         try:
             download_silero(proxy=proxy)
-            download_asr("anime-whisper", hub=hub, proxy=proxy)
+            download_asr("kotoba-whisper", hub=hub, proxy=proxy)
             download_local_translator("qwen3.5-4b", proxy=proxy)
         except Exception as e:
             self._error = str(e)
@@ -340,7 +340,7 @@ class SetupWizardDialog(QDialog):
         settings = {
             "hub": hub,
             "download_proxy": self._proxy,
-            "asr_engine": "anime-whisper",
+            "asr_engine": "kotoba-whisper",
             "vad_mode": "energy",
             "vad_threshold": 0.1,
             "energy_threshold": 0.025,
@@ -440,6 +440,8 @@ class ModelDownloadDialog(QDialog):
                     "sensevoice",
                     "funasr-nano",
                     "funasr-mlt-nano",
+                    "kotoba-whisper",
+                    "whisper-turbo",
                     "anime-whisper",
                 ):
                     download_asr(m["type"], hub=self._hub, proxy=self._proxy)

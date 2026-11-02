@@ -24,7 +24,11 @@
 While the original LiveTranslate upstream was designed with stream broadcasting tools (like OBS) in mind, this fork is specifically optimized for **viewers watching foreign livestreams** (YouTube, Twitch, TwitCasting, Kick, etc.), anime, galgames, and voice chat on **Windows**.
 
 ### What's New & Improved in This Fork:
-- 🚀 **Zero-Config First Launch**: Defaults to **Anime-Whisper** (`litagin/anime-whisper`) and a built-in **Qwen3.5-4B** local translator from Hugging Face. Works right out of the box with **no API keys, no LM Studio, and no external software required**!
+- 🚀 **Zero-Config First Launch**: Defaults to **Kotoba-Whisper v2.0** (`kotoba-tech/kotoba-whisper-v2.0-faster`) with native CTranslate2 acceleration, alongside a built-in **Qwen3.5-4B** local translator. Works right out of the box with **no API keys, no LM Studio, and no external software required**!
+- 🎙️ **Next-Gen Voice Capture Engines**:
+  - **Kotoba-Whisper v2.0**: Native CTranslate2 Japanese model (2-3x faster than legacy anime-whisper, lower hallucination rate, optimized for JP speech & anime banter).
+  - **Whisper Large-v3 Turbo**: 4-layer decoder high-speed conversational model, handles overlapping stream audio and gaming background music significantly better than base V2/V3.
+  - **SenseVoice Small**: Non-autoregressive single-pass ASR (~70ms latency), completely immune to repetitive hallucination loops.
 - ⚡ **No-Thinking Subtitle Streaming**: The local Qwen translation engine explicitly loads with reasoning mode suppressed (`enable_thinking=False`), guaranteeing instantaneous character-by-character translation without wasting tokens or latency on hidden `<think>` reasoning blocks.
 - 🖥️ **Multi-Monitor Scaling Bug Fix**: Moving the overlay between monitors with different display resolutions and DPI scaling factors now scales and renders cleanly without clipping or stretching.
 - 💾 **Full Settings & Language Persistence**: Remembers your chosen target and source languages (no longer forcing Chinese defaults), window coordinates, and toggle states (`Top-most`, `Click-through`, `Auto-scroll`).
@@ -42,7 +46,7 @@ While the original LiveTranslate upstream was designed with stream broadcasting 
 │ [ ] Click-through  [x] Top-most  [x] Auto-scroll                       │
 │ Model: qwen3.5-4b    Source: ja - 日本語         Target: en - English   │
 ├────────────────────────────────────────────────────────────────────────┤
-│ RMS: 25% | VAD: 100% | Anime-Whisper [cuda:0] | ASR 58ms TL 180ms       │
+│ RMS: 25% | VAD: 100% | Kotoba-Whisper [cuda:0] | ASR 58ms TL 180ms      │
 │                                                                        │
 │ [08:24:20] [ja] なにこれ、おもしろいじゃん ASR 68ms                      │
 │ > What is this, it's hilarious! TL 209ms                               │
@@ -74,7 +78,7 @@ While the original LiveTranslate upstream was designed with stream broadcasting 
    - Click **Yes** — it automatically creates the virtual environment, configures the proper PyTorch build for your NVIDIA GPU (including CUDA 12.8 for RTX 50-series Blackwell GPUs), and verifies all libraries.
 
 3. **First-Run Model Download**:
-   - The setup dialog will automatically download **Anime-Whisper** and **Qwen3.5-4B** from Hugging Face.
+   - The setup dialog will automatically download **Kotoba-Whisper v2.0** and **Qwen3.5-4B** from Hugging Face.
    - Once completed, the subtitle overlay appears and starts translating your system audio in real-time!
 
 ---
@@ -165,7 +169,7 @@ System Audio (WASAPI Loopback 16 kHz)
    │       │
    │       └──> Speech Segment Collector
    │               │
-   │               ├──> Anime-Whisper / SenseVoice / Faster-Whisper (ASR Process)
+   │               ├──> Kotoba-Whisper v2.0 / Large-v3-Turbo / SenseVoice (ASR Process)
    │               │       │
    │               │       └──> Recognized Text (e.g. Japanese)
    │               │
@@ -193,7 +197,7 @@ Run the comprehensive unit test suite:
 ## 📄 License & Credits
 
 - Based on the open-source [LiveTranslate](https://github.com/TheDeathDragon/LiveTranslate) architecture.
-- Japanese speech recognition powered by [Anime-Whisper](https://huggingface.co/litagin/anime-whisper) by litagin.
+- Japanese speech recognition powered by [Kotoba-Whisper v2.0](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster) by Kotoba Technologies, [Whisper Large-v3 Turbo](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2), and [SenseVoice Small](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) by FunAudioLLM.
 - Voice activity detection by [Silero VAD](https://github.com/snakers4/silero-vad).
 - Local LLM inference via [Qwen/Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) by Alibaba Cloud Qwen Team.
 - Distributed under the [MIT License](LICENSE).

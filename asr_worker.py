@@ -64,20 +64,42 @@ def _load_engine(config: dict):
 
     parsed_device, device_index = _parse_device(device)
 
-    if engine_type == "funasr":
+    if engine_type == "funasr" or engine_type == "sensevoice":
         from asr_funasr import FunASREngine
 
         engine = FunASREngine(
-            model_key=config.get("funasr_model"),
+            model_key=config.get("funasr_model", "sensevoice-small"),
             device=device,
             hub=hub,
             pad_seconds=pad_seconds,
         )
-    elif engine_type == "anime-whisper":
-        from asr_anime_whisper import AnimeWhisperEngine
+    elif engine_type in ("kotoba-whisper", "anime-whisper"):
+        from asr_kotoba_whisper import KotobaWhisperEngine
 
         worker_device = parsed_device if parsed_device == "cpu" else f"cuda:{device_index}"
-        engine = AnimeWhisperEngine(device=worker_device, hub=hub)
+        engine = KotobaWhisperEngine(device=worker_device, hub=hub, pad_seconds=pad_seconds)
+    elif engine_type == "whisper-turbo":
+        from asr_engine import ASREngine
+        from model_manager import get_local_model_path
+
+        compute_type = config.get("compute_type", "float16")
+        if parsed_device == "cpu" and compute_type == "float16":
+            compute_type = "int8"
+        download_root = config.get("download_root")
+        if not download_root:
+            download_root = str((MODELS_DIR / "huggingface" / "hub").resolve())
+        local_path = get_local_model_path("whisper-turbo", hub=hub)
+        model_size_or_path = local_path or "deepdml/faster-whisper-large-v3-turbo-ct2"
+
+        engine = ASREngine(
+            model_size=model_size_or_path,
+            device=parsed_device,
+            device_index=device_index,
+            compute_type=compute_type,
+            language=language,
+            download_root=download_root,
+            pad_seconds=pad_seconds,
+        )
     else:
         from asr_engine import ASREngine
 

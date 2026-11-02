@@ -115,7 +115,7 @@ class ControlPanel(QWidget):
                 "silence_duration": config["asr"].get("silence_duration", 0.50),
                 "asr_language": config["asr"].get("language", "ja"),
                 "target_language": tc.get("target_language", "en"),
-                "asr_engine": config["asr"].get("asr_engine", "anime-whisper"),
+                "asr_engine": config["asr"].get("asr_engine", "kotoba-whisper"),
                 "funasr_model": config["asr"].get(
                     "funasr_model", DEFAULT_FUNASR_MODEL
                 ),
@@ -231,17 +231,21 @@ class ControlPanel(QWidget):
         self._asr_engine.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self._asr_engine.addItems(
             [
-                f"[{t('asr_accurate')}] Whisper (faster-whisper)",
-                f"[{t('asr_fast')}] FunASR",
-                "Anime-Whisper (ja, anime/galgame)",
+                f"[{t('asr_accurate')}] Kotoba-Whisper v2.0 (faster-whisper, ja)",
+                f"[{t('asr_accurate')}] Whisper Large-v3 Turbo (faster-whisper)",
+                f"[{t('asr_fast')}] SenseVoice Small (FunASR)",
+                "Whisper Standard (tiny/base/small/medium/large)",
                 "Remote Whisper (remote GPU server)",
             ]
         )
         engine_map_idx = {
-            "whisper": 0,
-            "funasr": 1,
-            "anime-whisper": 2,
-            "remote-whisper": 3,
+            "kotoba-whisper": 0,
+            "anime-whisper": 0,
+            "whisper-turbo": 1,
+            "sensevoice": 2,
+            "funasr": 2,
+            "whisper": 3,
+            "remote-whisper": 4,
         }
         engine_idx = engine_map_idx.get(s.get("asr_engine"), 0)
         self._asr_engine.setCurrentIndex(engine_idx)
@@ -1114,7 +1118,10 @@ class ControlPanel(QWidget):
             for name, path in entries:
                 size = dir_size(path)
                 results.append((name, str(path), size))
-            self._cache_result.emit(results)
+            try:
+                self._cache_result.emit(results)
+            except RuntimeError:
+                pass
 
         threading.Thread(target=_scan, daemon=True).start()
 
@@ -1161,23 +1168,25 @@ class ControlPanel(QWidget):
         return self._asr_lang.currentData() or "auto"
 
     def _on_engine_changed_whisper_vis(self, index):
-        self._whisper_group.setVisible(index == 0)
-        is_funasr = index == 1
+        # 0: kotoba-whisper, 1: whisper-turbo, 2: sensevoice, 3: whisper standard, 4: remote-whisper
+        is_whisper = index in (0, 1, 3)
+        is_standard_whisper = (index == 3)
+        is_sensevoice = (index == 2)
+        is_remote = (index == 4)
+
+        if hasattr(self, "_whisper_group"):
+            self._whisper_group.setVisible(is_standard_whisper)
         if hasattr(self, "_funasr_model_combo"):
-            self._funasr_model_label.setVisible(is_funasr)
-            self._funasr_model_combo.setVisible(is_funasr)
+            self._funasr_model_label.setVisible(False)
+            self._funasr_model_combo.setVisible(False)
         if hasattr(self, "_whisper_pad_seconds"):
-            is_whisper = index == 0
             self._whisper_pad_label.setVisible(is_whisper)
             self._whisper_pad_seconds.setVisible(is_whisper)
         if hasattr(self, "_sensevoice_pad_seconds"):
-            show_funasr_pad = is_funasr and funasr_supports_padding(
-                self._selected_funasr_model()
-            )
-            self._sensevoice_pad_label.setVisible(show_funasr_pad)
-            self._sensevoice_pad_seconds.setVisible(show_funasr_pad)
+            self._sensevoice_pad_label.setVisible(is_sensevoice)
+            self._sensevoice_pad_seconds.setVisible(is_sensevoice)
         if hasattr(self, "_remote_group"):
-            self._remote_group.setVisible(index == 3)
+            self._remote_group.setVisible(is_remote)
         # Resize window to fit content after whisper group visibility change
         QTimer.singleShot(0, self._fit_height)
 
@@ -1487,13 +1496,14 @@ class ControlPanel(QWidget):
     def _apply_settings(self):
         self._current_settings["asr_language"] = self._get_asr_lang_code()
         engine_map = {
-            0: "whisper",
-            1: "funasr",
-            2: "anime-whisper",
-            3: "remote-whisper",
+            0: "kotoba-whisper",
+            1: "whisper-turbo",
+            2: "sensevoice",
+            3: "whisper",
+            4: "remote-whisper",
         }
         self._current_settings["asr_engine"] = engine_map.get(
-            self._asr_engine.currentIndex(), "whisper"
+            self._asr_engine.currentIndex(), "kotoba-whisper"
         )
         self._current_settings["funasr_model"] = self._selected_funasr_model()
         if hasattr(self, "_remote_url_edit"):

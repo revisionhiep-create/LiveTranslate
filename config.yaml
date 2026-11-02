@@ -9,8 +9,8 @@ audio:
   chunk_duration: 0.032
 
 asr:
-  # ASR engine: whisper, funasr, anime-whisper
-  asr_engine: "anime-whisper"
+  # ASR engine: kotoba-whisper, whisper-turbo, sensevoice, whisper, remote-whisper
+  asr_engine: "kotoba-whisper"
   # Model size: tiny, base, small, medium, large-v3
   model_size: "medium"
   # FunASR model: sensevoice-small, funasr-nano-2512, funasr-mlt-nano-2512

@@ -24,7 +24,11 @@
 原本的 LiveTranslate 偏向于主播直播推流使用，而本 Fork 进行了全方位重新调优，**专门服务于在 Windows 上观看海外主播（如 YouTube/Twitch/TwitCasting 的日文 VTuber、游戏直播、动漫生肉等）的观众**。
 
 ### 主要改进与特性：
-- 🚀 **开箱即用，零配置要求**：默认搭载针对动漫/日文游戏优化的 **Anime-Whisper**，以及直接运行的 **Qwen3.5-4B** 本地大语言模型。**首次启动完全无需配置 LM Studio 或填写 API 密钥**！
+- 🚀 **开箱即用，零配置要求**：默认搭载原生 CTranslate2 加速的 **Kotoba-Whisper v2.0**（替代旧版 Anime-Whisper，推理速度提升 2-3 倍），以及直接运行的 **Qwen3.5-4B** 本地大语言模型。**首次启动完全无需配置 LM Studio 或填写 API 密钥**！
+- 🎙️ **三大全新语音识别引擎无缝切换**：
+  - **Kotoba-Whisper v2.0**：原生 CTranslate2 日语特化模型，极速推理（~150-250ms），幻觉率大幅降低，专攻动漫杂谈生肉与直播日常口语。
+  - **Whisper Large-v3 Turbo**：4 层轻量解码器，高精度对话识别，抗重叠人声与背景游戏音乐能力远超 base/v2/v3。
+  - **SenseVoice Small**：非自回归单步极速识别（~70ms 超低延迟），完全杜绝传统自回归循环幻觉。
 - ⚡ **无思考模式极速流式翻译**：Qwen 本地翻译模型强制启用 `enable_thinking=False`，彻底关闭多余的思维链推理，从第一个 token 开始直接输出翻译字幕，零延迟流式展现。
 - 🖥️ **跨多显示器 DPI 缩放修复**：彻底解决了原版在多台不同分辨率/DPI 缩放比例的显示器之间拖拽时，界面错位、字体模糊或窗口被截断的 Bug。
 - 💾 **完整的语言与状态持久化**：记住用户选择的源语言（如 `ja`）与目标语言（如 `en`），不再强制重置回中文；窗口坐标、置顶（`Top-most`）、鼠标穿透（`Click-through`）、自动滚动状态均会自动保存。
@@ -54,7 +58,7 @@
    - 点击 **“是”** 即可全自动安装 Python 依赖及匹配当前显卡的 PyTorch CUDA 版本（包括 RTX 50 系列 Blackwell 显卡专属 CUDA 12.8）。
 
 3. **首次启动自动下载模型**：
-   - 首次启动向导会自动从 Hugging Face 下载 **Anime-Whisper** 与 **Qwen3.5-4B**。
+   - 首次启动向导会自动从 Hugging Face 下载 **Kotoba-Whisper v2.0** 与 **Qwen3.5-4B**。
    - 下载完成后立即自动打开字幕悬浮窗开始实时翻译！
 
 ---
@@ -139,7 +143,7 @@
 ## 📄 许可协议
 
 - 基于 [LiveTranslate](https://github.com/TheDeathDragon/LiveTranslate) 开源架构衍生开发。
-- 日语音频识别模型：[Anime-Whisper](https://huggingface.co/litagin/anime-whisper) (litagin)。
+- 日语音频识别模型：[Kotoba-Whisper v2.0](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster) (Kotoba Technologies)、[Whisper Large-v3 Turbo](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2) 与 [SenseVoice Small](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) (FunAudioLLM)。
 - 语音活动检测：[Silero VAD](https://github.com/snakers4/silero-vad)。
 - 本地翻译大模型：[Qwen/Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) (阿里 Qwen 团队)。
 - 遵循 [MIT 许可协议](LICENSE) 开源。
