@@ -146,17 +146,35 @@ For lightweight GPU usage, you can offload translation to external cloud provide
 
 ---
 
-## 🛠️ VAD & Audio Tuning
+## 🎯 Recommended Settings for Watching Japanese Streamers
 
-This fork comes pre-configured with speech settings tuned for stream dialogue:
-- **VAD Mode**: `Energy-based` (prevents low background game music or noise from triggering false speech recognition).
-- **Energy Threshold**: `25‰` (`0.025`).
-- **Min Speech**: `0.40s` (catches short Japanese interjections like 「うん」「はい」「えっ」).
-- **Max Speech**: `8.00s`.
-- **Silence Duration**: `0.50s` (Fixed).
-- **Audio Device**: Automatically attaches to Windows default audio playback (or select virtual cables such as VoiceMeeter / BEACN Mix Create).
+To achieve maximum transcription accuracy, minimal latency, and zero background music false-triggers when watching Japanese VTubers (Hololive, Nijisanji, VSPO!), Twitch/YouTube livestreams, anime, or gaming broadcasts, use the following settings:
 
-All settings can be customized at any time in **Settings → AD / ASR**.
+### 1. VAD & Audio Segmentation Tuning (**Settings → AD / ASR**)
+
+| Setting | Recommended Value | Optimization Purpose |
+|:---|:---:|:---|
+| **VAD Mode** | `Energy-based` | Prevents quiet stream background music (BGM) and game sounds from falsely triggering speech recognition. |
+| **Silero VAD Threshold** | `30%` (`0.30`) | Accurately distinguishes human speech from background breathing, mechanical keyboard clicks, and quiet mic hiss. |
+| **Energy Threshold (for Energy-based mode)** | `25‰` (`0.025`) | Sets a volume floor to filter out faint stream ambiance while reliably picking up the streamer's voice. |
+| **Min speech** | `0.40 s` | Catches fast Japanese interjections, reaction noises, and short slang (e.g., 「うん」「はい」「えっ」「草」「やば」). |
+| **Max speech** | `8.00 s` | Prevents runaway sentences during rapid talking; cuts long speech into clean, readable subtitle segments. |
+| **Silence** | `Fixed` | Provides predictable, consistent sentence boundary slicing. |
+| **Silence dur** | `0.50 s` | Sends audio to ASR within 0.5s of the streamer pausing, ensuring snappy real-time translation with minimal delay. |
+| **Incremental ASR** | `Unchecked` (Off) | Disables interim partial transcriptions, eliminating distracting jittery subtitle flashes and saving GPU compute for final output. |
+| **Interim interval** | `2.00 s` | Default setting when Incremental ASR is disabled. |
+
+---
+
+### 2. Recommended Engine & Display Pairings
+
+| Component | Recommended Choice | Advantage |
+|:---|:---|:---|
+| **Voice Capture (ASR)** | **`[Accurate] Kotoba-Whisper v2.0 (faster-whisper, ja)`** *(Default)*<br>*(or **Whisper Large-v3 Turbo** for heavy BGM)* | 2–3× faster inference with native CTranslate2 acceleration; fine-tuned specifically on conversational Japanese and anime banter. |
+| **Source Language** | `ja - Japanese` | Direct Japanese acoustic modeling with lowest hallucination rate. |
+| **Target Language** | `en - English` (or your preferred language) | Seamlessly translated by the built-in local Qwen3.5-4B model. |
+| **Translation Engine** | **Built-in Qwen3.5-4B** (Local) | Zero setup, completely offline, with thinking mode suppressed (`enable_thinking=False`) for instant token-by-token streaming. |
+| **Subtitle Window** | Floating Subtitle Bar (`Sub` button) | Middle-click and drag the sleek subtitle strip directly beneath your video player. Position and dimensions are remembered across restarts! |
 
 ---
 
