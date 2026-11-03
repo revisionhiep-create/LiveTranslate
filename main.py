@@ -45,6 +45,19 @@ from vad_processor import VADProcessor
 from asr_client import ASRClient, ASRWorkerError, ASRWorkerExited, ASRWorkerTimeout
 from translator import Translator, RepetitionError
 from transcript_writer import TranscriptWriter
+from text_segmenter import (
+    get_segmenter,
+    split_sentences,
+    is_short_utterance,
+    strip_committed_overlap,
+    is_whisper_hallucination,
+)
+from asr_supervisor import (
+    load_engine_client,
+    load_asr_client,
+    take_mem_snapshot,
+    release_memory_caches,
+)
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QDialog, QMessageBox, QWidget
 from PyQt6.QtGui import (
@@ -338,7 +351,7 @@ class LiveTranslateApp:
             self._switch_asr_engine(
                 settings.get(
                     "asr_engine",
-                    self._asr_type or self._config["asr"].get("asr_engine", "funasr"),
+                    self._asr_type or self._config["asr"].get("asr_engine", "kotoba-whisper"),
                 )
             )
         if "audio_device" in settings:
@@ -461,32 +474,12 @@ class LiveTranslateApp:
                 self._asr_restart_state["config"].update(kwargs)
 
     def _load_engine_client(self, config: dict):
-        """Build the ASR backend for a worker config. Local engines run in an isolated
-        worker subprocess (ASRClient); remote-whisper is a thin in-process HTTP client
-        that needs no subprocess isolation (no native deps, no GPU model to load)."""
-        if config.get("engine_type") == "remote-whisper":
-            from asr_remote import RemoteASREngine
-
-            url = config.get("remote_asr_url") or "http://127.0.0.1:8765"
-            engine = RemoteASREngine(server_url=url)
-            language = config.get("language")
-            if language:
-                engine.set_language(language)
-            return engine
-        return self._load_asr_client(config)
+        """Build the ASR backend for a worker config via ASR supervisor."""
+        return load_engine_client(config)
 
     def _load_asr_client(self, worker_config: dict) -> ASRClient:
-        # request_timeout bounds how long a hung worker can stall the realtime path
-        # before it is killed and auto-restarted. VAD caps segments at a few seconds,
-        # so 60s is generous for a healthy transcribe yet far below the old 120s.
-        client = ASRClient(worker_config, request_timeout=60.0)
-        try:
-            client.start()
-            client.wait_ready()
-            return client
-        except Exception:
-            client.shutdown()
-            raise
+        """Spawn and wait for a dedicated ASR worker process via ASR supervisor."""
+        return load_asr_client(worker_config)
 
     def _on_target_language_changed(self, lang: str):
         self._target_language = lang
@@ -871,39 +864,8 @@ class LiveTranslateApp:
             self._overlay.update_asr_device("ASR unavailable")
 
     def _mem_snapshot(self) -> dict:
-        rss_mb = self._mem_proc.memory_info().rss / 1024 / 1024
-        # The ASR model (and its native-side leak) lives in the worker process now,
-        # so sample its RSS too; the main process holds only VAD + Qt.
-        worker_rss_mb = 0.0
-        client = self._asr
-        if client is not None and client.pid is not None:
-            try:
-                import psutil
-
-                worker_rss_mb = (
-                    psutil.Process(client.pid).memory_info().rss / 1024 / 1024
-                )
-            except Exception:
-                worker_rss_mb = 0.0
-        gpu_alloc_mb = 0.0
-        gpu_reserved_mb = 0.0
-        try:
-            if torch.cuda.is_available():
-                gpu_alloc_mb = torch.cuda.memory_allocated() / 1024 / 1024
-                gpu_reserved_mb = torch.cuda.memory_reserved() / 1024 / 1024
-        except Exception:
-            pass
-        msgs = len(self._overlay._messages) if self._overlay else 0
-        vad_buf = len(self._vad._speech_buffer)
-        return {
-            "rss": rss_mb,
-            "worker_rss": worker_rss_mb,
-            "total_rss": rss_mb + worker_rss_mb,
-            "gpu_alloc": gpu_alloc_mb,
-            "gpu_reserved": gpu_reserved_mb,
-            "msgs": msgs,
-            "vad_buf": vad_buf,
-        }
+        """Capture memory footprint snapshot via ASR supervisor."""
+        return take_mem_snapshot(self._mem_proc, self._asr, self._overlay, self._vad)
 
     def _log_mem_after_asr(self, kind: str, audio_seconds: float, asr_ms: float):
         self._mem_asr_call_count += 1
@@ -922,12 +884,8 @@ class LiveTranslateApp:
         self._check_memory_threshold(snap["total_rss"])
 
     def _release_memory_caches(self):
-        gc.collect()
-        try:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+        """Release unused Python and CUDA memory caches via ASR supervisor."""
+        release_memory_caches()
 
     def _run_asr(self, audio: np.ndarray, kind: str, **kwargs):
         audio_seconds = len(audio) / 16000
@@ -1387,6 +1345,10 @@ class LiveTranslateApp:
             )
             return
 
+        if is_whisper_hallucination(original_text):
+            log.info(f"Hallucination filter: discarded silence/outro artifact: '{original_text}'")
+            return
+
         source_lang = result["language"]
         asr_lang_setting = self._panel.get_settings().get("asr_language", "auto") if self._panel else "auto"
         if asr_lang_setting != "auto" and source_lang != asr_lang_setting:
@@ -1453,62 +1415,30 @@ class LiveTranslateApp:
             except RuntimeError:
                 log.warning("Translation executor shut down, skipping")
 
-    # ── Incremental ASR ──
-
-    _segmenter_cache = {}  # lang -> yasbd pysbd_adapter.Segmenter
+    # ── Incremental ASR & Segmentation ──
 
     @staticmethod
     def _get_segmenter(lang: str):
-        from yasbd import get_supported_langs, pysbd_adapter
-        if lang not in LiveTranslateApp._segmenter_cache:
-            seg_lang = lang if lang in get_supported_langs() else "en"
-            LiveTranslateApp._segmenter_cache[lang] = pysbd_adapter.Segmenter(
-                language=seg_lang, clean=False
-            )
-        return LiveTranslateApp._segmenter_cache[lang]
+        """Return a cached sentence segmenter for the given language."""
+        return get_segmenter(lang)
 
     def _split_sentences(self, text: str, lang: str = "en") -> list[str]:
-        """Split text into sentences using yasbd, with comma fallback for long text."""
-        seg = self._get_segmenter(lang)
-        parts = [p for p in seg.segment(text) if p.strip()]
-        if len(parts) > 1:
-            return parts
-
-        # Comma fallback for long unsplit text — split at last balanced comma
-        # CJK 「、」at 25 chars; all commas at 60 chars (long sentence, reduce latency)
-        min_len = 25 if any(c == '、' for c in text) else 60
-        if len(text) > min_len:
-            for i in range(len(text) - 8, 5, -1):
-                if text[i] in ',，;；、':
-                    before = text[:i + 1].strip()
-                    after = text[i + 1:].strip()
-                    if before and after and len(before) > 15 and len(after) > 3:
-                        return [before, after]
-
-        return parts
+        """Split text into sentences using text_segmenter."""
+        return split_sentences(text, lang)
 
     @staticmethod
     def _is_short_utterance(text: str) -> bool:
-        """Check if text has ≤8 alphanumeric chars (likely noise/filler/fragment)."""
-        alnum = sum(1 for c in text if c.isalnum())
-        return alnum <= 8
+        """Check if text has <= 8 alphanumeric chars."""
+        return is_short_utterance(text)
 
     def _strip_committed_overlap(self, text: str) -> str:
         """Remove text that overlaps with previously committed content."""
-        if not self._interim_committed_tail:
-            return text
-        tail = self._interim_committed_tail.lower().rstrip()
-        text_lower = text.lower()
-        # Check if text starts with a suffix of the committed tail
-        max_check = min(len(tail), len(text_lower))
-        for overlap_len in range(max_check, 2, -1):
-            if text_lower[:overlap_len] == tail[-overlap_len:]:
-                stripped = text[overlap_len:].strip()
-                if stripped:
-                    log.debug(f"Stripped echo overlap ({overlap_len} chars): '{text[:overlap_len]}...'")
-                    return stripped
-                return ""
-        return text
+        return strip_committed_overlap(text, self._interim_committed_tail)
+
+    @staticmethod
+    def _is_whisper_hallucination(text: str) -> bool:
+        """Check if text matches known Whisper YouTube outro/silence hallucination artifacts."""
+        return is_whisper_hallucination(text)
 
     def _do_interim_asr(self) -> bool:
         """Run ASR on current VAD buffer, output complete sentences, trim consumed audio.
@@ -1602,6 +1532,9 @@ class LiveTranslateApp:
             text = sent.strip()
             if not text:
                 continue
+            if is_whisper_hallucination(text):
+                log.info(f"Hallucination filter (interim sentence): discarded '{text}'")
+                continue
             if self._is_short_utterance(text):
                 self._interim_pending += text
                 log.debug(f"Interim short utterance buffered: '{text}', pending='{self._interim_pending}'")
@@ -1632,6 +1565,10 @@ class LiveTranslateApp:
         """Output a text result (from interim or final) — similar to _process_segment but skips ASR."""
         original_text = text.strip()
         if not original_text or not any(c.isalnum() for c in original_text):
+            return
+
+        if is_whisper_hallucination(original_text):
+            log.info(f"Hallucination filter (interim text): discarded '{original_text}'")
             return
 
         asr_lang_setting = self._panel.get_settings().get("asr_language", "auto") if self._panel else "auto"
@@ -1712,6 +1649,10 @@ class LiveTranslateApp:
             self._interim_pending = ""
 
         if not original_text or not any(c.isalnum() for c in original_text):
+            return
+
+        if is_whisper_hallucination(original_text):
+            log.info(f"Hallucination filter (interim final): discarded '{original_text}'")
             return
 
         # Apply noise filter like _process_segment
@@ -1841,13 +1782,13 @@ def main():
     log.info("LiveTranslate starting...")
     config = load_config()
     config.setdefault("asr", {})
-    config["asr"].setdefault("asr_engine", "funasr")
+    config["asr"].setdefault("asr_engine", "kotoba-whisper")
     config["asr"].setdefault("funasr_model", DEFAULT_FUNASR_MODEL)
     saved = _load_saved_settings()
     migrate_funasr_settings(saved)
 
     # Log actual effective config
-    _asr_eng = (saved or {}).get("asr_engine", config["asr"].get("asr_engine", "funasr"))
+    _asr_eng = (saved or {}).get("asr_engine", config["asr"].get("asr_engine", "kotoba-whisper"))
     _funasr_model = (saved or {}).get(
         "funasr_model", config["asr"].get("funasr_model", DEFAULT_FUNASR_MODEL)
     )

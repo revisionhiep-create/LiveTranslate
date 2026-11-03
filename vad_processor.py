@@ -1,5 +1,6 @@
 import logging
 import collections
+from typing import Optional, Tuple, Dict, Any, Deque
 
 import numpy as np
 import torch
@@ -10,16 +11,16 @@ log = logging.getLogger("LiveTranslate.VAD")
 
 
 class VADProcessor:
-    """Voice Activity Detection with multiple modes."""
+    """Voice Activity Detection with Silero VAD v5 and Energy modes."""
 
     def __init__(
         self,
-        sample_rate=16000,
-        threshold=0.50,
-        min_speech_duration=1.0,
-        max_speech_duration=15.0,
-        chunk_duration=0.032,
-    ):
+        sample_rate: int = 16000,
+        threshold: float = 0.50,
+        min_speech_duration: float = 1.0,
+        max_speech_duration: float = 15.0,
+        chunk_duration: float = 0.032,
+    ) -> None:
         self.sample_rate = sample_rate
         self.threshold = threshold
         self.energy_threshold = 0.02
@@ -34,18 +35,17 @@ class VADProcessor:
         # missing, since torch.hub otherwise probes/downloads from GitHub.
         try:
             from silero_vad import load_silero_vad
+            self._model = load_silero_vad()
         except ImportError:
             self._model, _ = torch.hub.load(
                 repo_or_dir="snakers4/silero-vad:master",
                 model="silero_vad",
                 trust_repo=True,
             )
-        else:
-            self._model = load_silero_vad()
         self._model.eval()
 
-        self._speech_buffer = []
-        self._confidence_history = []  # per-chunk confidence, synced with _speech_buffer
+        self._speech_buffer: Deque[np.ndarray] = collections.deque()
+        self._confidence_history: Deque[float] = collections.deque()  # per-chunk confidence
         self._speech_samples = 0
         self._is_speaking = False
         self._silence_counter = 0
@@ -53,7 +53,7 @@ class VADProcessor:
 
         # Pre-speech ring buffer: capture onset consonants before VAD triggers
         self._pre_speech_chunks = 3  # ~96ms at 32ms/chunk
-        self._pre_buffer = collections.deque(maxlen=self._pre_speech_chunks)
+        self._pre_buffer: Deque[np.ndarray] = collections.deque(maxlen=self._pre_speech_chunks)
 
         # Silence timing
         self._silence_mode = "auto"  # "auto" or "fixed"
@@ -63,13 +63,13 @@ class VADProcessor:
         # Progressive silence: shorter threshold when buffer is long
         self._progressive_tiers = [
             # (buffer_seconds, silence_multiplier)
-            (3.0, 1.0),  # < 3s: use full silence_limit
-            (6.0, 0.5),  # 3-6s: use half silence_limit
-            (10.0, 0.25),  # 6-10s: use quarter silence_limit
+            (3.0, 1.0),   # < 3s: use full silence_limit
+            (6.0, 0.5),   # 3-6s: use half silence_limit
+            (10.0, 0.25), # 6-10s: use quarter silence_limit
         ]
 
         # Adaptive silence tracking: recent pause durations (seconds)
-        self._pause_history = collections.deque(maxlen=50)
+        self._pause_history: Deque[float] = collections.deque(maxlen=50)
         self._adaptive_min = 0.3
         self._adaptive_max = 2.0
 
@@ -79,11 +79,11 @@ class VADProcessor:
     def _seconds_to_chunks(self, seconds: float) -> int:
         return max(1, round(seconds / self._chunk_duration))
 
-    def _update_adaptive_limit(self):
+    def _update_adaptive_limit(self) -> None:
         if len(self._pause_history) < 3:
             return
         pauses = sorted(self._pause_history)
-        # P75 of recent pauses × 1.2
+        # P75 of recent pauses x 1.2
         idx = int(len(pauses) * 0.75)
         p75 = pauses[min(idx, len(pauses) - 1)]
         target = max(self._adaptive_min, min(self._adaptive_max, p75 * 1.2))
@@ -94,7 +94,7 @@ class VADProcessor:
             )
             self._silence_limit = new_limit
 
-    def update_settings(self, settings: dict):
+    def update_settings(self, settings: Dict[str, Any]) -> None:
         if "vad_mode" in settings:
             self.mode = settings["vad_mode"]
         if "vad_threshold" in settings:
@@ -155,7 +155,7 @@ class VADProcessor:
         effective = max(1, round(self._silence_limit * multiplier))
         return effective
 
-    def process_chunk(self, audio_chunk: np.ndarray):
+    def process_chunk(self, audio_chunk: np.ndarray) -> Optional[np.ndarray]:
         confidence = self._get_confidence(audio_chunk)
         self.last_confidence = confidence
 
@@ -173,7 +173,6 @@ class VADProcessor:
 
             if not self._is_speaking:
                 # Speech onset: prepend pre-speech buffer to capture leading consonants
-                # Use threshold as confidence so these chunks don't create false valleys
                 for pre_chunk in self._pre_buffer:
                     self._speech_buffer.append(pre_chunk)
                     self._confidence_history.append(effective_threshold)
@@ -193,6 +192,13 @@ class VADProcessor:
         else:
             # Not speaking: feed pre-speech ring buffer
             self._pre_buffer.append(audio_chunk)
+            self._silence_counter += 1
+            # Reset recurrent states after prolonged silence (> 5 seconds)
+            if self._silence_counter > self._seconds_to_chunks(5.0) and hasattr(self._model, "reset_states"):
+                try:
+                    self._model.reset_states()
+                except Exception:
+                    pass
 
         # Force segment if max duration reached — backtrack to find best split point
         if self._speech_samples >= self.max_speech_samples:
@@ -223,27 +229,22 @@ class VADProcessor:
         return None
 
     def _find_best_split_index(self) -> int:
-        """Find the best chunk index to split at using smoothed confidence.
-        A sliding window average reduces single-chunk noise, then we find
-        the center of the lowest valley. Works even when the speaker never
-        fully pauses (e.g. fast commentary).
-        Returns -1 if no usable split point found."""
+        """Find the best chunk index to split at using smoothed confidence."""
         n = len(self._confidence_history)
         if n < 4:
             return -1
 
-        # Smooth confidence with a sliding window (~160ms = 5 chunks at 32ms)
+        conf_list = list(self._confidence_history)
         smooth_win = min(5, n // 2)
         smoothed = []
         for i in range(n):
             lo = max(0, i - smooth_win // 2)
             hi = min(n, i + smooth_win // 2 + 1)
-            smoothed.append(sum(self._confidence_history[lo:hi]) / (hi - lo))
+            smoothed.append(sum(conf_list[lo:hi]) / (hi - lo))
 
         # Search in the latter 70% of the buffer (avoid splitting too early)
         search_start = max(1, n * 3 // 10)
 
-        # Find global minimum in smoothed curve
         min_val = float("inf")
         min_idx = -1
         for i in range(search_start, n):
@@ -254,7 +255,6 @@ class VADProcessor:
         if min_idx <= 0:
             return -1
 
-        # Check if this is a meaningful dip
         avg_conf = sum(smoothed[search_start:]) / max(1, n - search_start)
         dip_ratio = min_val / max(avg_conf, 1e-6)
 
@@ -276,9 +276,8 @@ class VADProcessor:
 
         return -1
 
-    def _split_at_best_pause(self):
-        """When hitting max duration, backtrack to find the best pause point.
-        Flushes the first part and keeps the remainder for continued accumulation."""
+    def _split_at_best_pause(self) -> Optional[np.ndarray]:
+        """Backtrack to find best pause point when reaching max speech duration."""
         if not self._speech_buffer:
             return None
 
@@ -292,10 +291,12 @@ class VADProcessor:
             )
             return self._flush_segment()
 
-        # Split: emit first part, keep remainder
-        first_bufs = self._speech_buffer[:split_idx]
-        remain_bufs = self._speech_buffer[split_idx:]
-        remain_confs = self._confidence_history[split_idx:]
+        all_bufs = list(self._speech_buffer)
+        all_confs = list(self._confidence_history)
+
+        first_bufs = all_bufs[:split_idx]
+        remain_bufs = all_bufs[split_idx:]
+        remain_confs = all_confs[split_idx:]
 
         first_samples = sum(len(b) for b in first_bufs)
         remain_samples = sum(len(b) for b in remain_bufs)
@@ -308,15 +309,15 @@ class VADProcessor:
         segment = np.concatenate(first_bufs)
 
         # Keep remainder in buffer for next segment
-        self._speech_buffer = remain_bufs
-        self._confidence_history = remain_confs
+        self._speech_buffer = collections.deque(remain_bufs)
+        self._confidence_history = collections.deque(remain_confs)
         self._speech_samples = remain_samples
         self._is_speaking = True
         self._silence_counter = 0
 
         return segment
 
-    def _flush_segment(self):
+    def _flush_segment(self) -> Optional[np.ndarray]:
         if not self._speech_buffer:
             return None
         # Speech density check: discard segments where most chunks are below threshold
@@ -334,36 +335,36 @@ class VADProcessor:
                 )
                 self._reset()
                 return None
-        segment = np.concatenate(self._speech_buffer)
+        segment = np.concatenate(list(self._speech_buffer))
         self._reset()
         return segment
 
-    def _reset(self):
-        self._speech_buffer = []
-        self._confidence_history = []
+    def _reset(self) -> None:
+        self._speech_buffer.clear()
+        self._confidence_history.clear()
         self._speech_samples = 0
         self._is_speaking = False
         self._silence_counter = 0
         self._was_trimmed = False
 
-    def peek_buffer(self):
+    def peek_buffer(self) -> Optional[Tuple[np.ndarray, float]]:
         """Read current speech buffer without flushing. Returns (audio, duration) or None."""
         if not self._speech_buffer or not self._is_speaking:
             return None
-        audio = np.concatenate(self._speech_buffer)
+        audio = np.concatenate(list(self._speech_buffer))
         duration = self._speech_samples / self.sample_rate
         return audio, duration
 
-    def trim_front(self, n_samples: int):
-        """Remove first n_samples from the speech buffer."""
+    def trim_front(self, n_samples: int) -> None:
+        """Remove first n_samples from the speech buffer in O(1) amortized deque operations."""
         if n_samples <= 0:
             return
         removed = 0
         while self._speech_buffer and removed < n_samples:
             chunk = self._speech_buffer[0]
             if removed + len(chunk) <= n_samples:
-                self._speech_buffer.pop(0)
-                self._confidence_history.pop(0)
+                self._speech_buffer.popleft()
+                self._confidence_history.popleft()
                 removed += len(chunk)
             else:
                 # Partial trim of first chunk
@@ -372,17 +373,20 @@ class VADProcessor:
                 removed = n_samples
         self._speech_samples = sum(len(b) for b in self._speech_buffer)
         self._was_trimmed = True
-        log.debug(f"trim_front: removed {removed} samples, remaining {self._speech_samples / self.sample_rate:.2f}s")
+        log.debug(
+            f"trim_front: removed {removed} samples, "
+            f"remaining {self._speech_samples / self.sample_rate:.2f}s"
+        )
 
-    def force_flush(self):
+    def force_flush(self) -> Optional[np.ndarray]:
         """Flush buffer regardless of min_speech_samples."""
         if not self._speech_buffer:
             return None
-        segment = np.concatenate(self._speech_buffer)
+        segment = np.concatenate(list(self._speech_buffer))
         self._reset()
         return segment
 
-    def flush(self):
+    def flush(self) -> Optional[np.ndarray]:
         if self._speech_samples >= self.min_speech_samples:
             return self._flush_segment()
         self._reset()

@@ -1,89 +1,102 @@
+import collections
 import logging
-import threading
 import queue
+import threading
 import time
+from typing import Optional, List, Dict, Tuple, Any
+
 import numpy as np
 import pyaudiowpatch as pyaudio
 
 log = logging.getLogger("LiveTranslate.Audio")
 
-DEVICE_CHECK_INTERVAL = 2.0  # seconds
+DEVICE_CHECK_INTERVAL = 10.0  # seconds
 
 
-def list_output_devices():
+def list_output_devices() -> List[str]:
     """Return list of WASAPI output device names."""
     pa = pyaudio.PyAudio()
     devices = []
     wasapi_idx = None
-    for i in range(pa.get_host_api_count()):
-        info = pa.get_host_api_info_by_index(i)
-        if "WASAPI" in info["name"]:
-            wasapi_idx = info["index"]
-            break
-    if wasapi_idx is not None:
-        for i in range(pa.get_device_count()):
-            dev = pa.get_device_info_by_index(i)
-            if (
-                dev["hostApi"] == wasapi_idx
-                and dev["maxOutputChannels"] > 0
-                and not dev.get("isLoopbackDevice", False)
-            ):
-                devices.append(dev["name"])
-    pa.terminate()
+    try:
+        for i in range(pa.get_host_api_count()):
+            info = pa.get_host_api_info_by_index(i)
+            if "WASAPI" in info["name"]:
+                wasapi_idx = info["index"]
+                break
+        if wasapi_idx is not None:
+            for i in range(pa.get_device_count()):
+                dev = pa.get_device_info_by_index(i)
+                if (
+                    dev["hostApi"] == wasapi_idx
+                    and dev["maxOutputChannels"] > 0
+                    and not dev.get("isLoopbackDevice", False)
+                ):
+                    devices.append(dev["name"])
+    finally:
+        pa.terminate()
     return devices
 
 
-def list_input_devices():
+def list_input_devices() -> List[str]:
     """Return list of WASAPI input (microphone) device names."""
     pa = pyaudio.PyAudio()
     devices = []
     wasapi_idx = None
-    for i in range(pa.get_host_api_count()):
-        info = pa.get_host_api_info_by_index(i)
-        if "WASAPI" in info["name"]:
-            wasapi_idx = info["index"]
-            break
-    if wasapi_idx is not None:
-        for i in range(pa.get_device_count()):
-            dev = pa.get_device_info_by_index(i)
-            if (
-                dev["hostApi"] == wasapi_idx
-                and dev["maxInputChannels"] > 0
-                and not dev.get("isLoopbackDevice", False)
-            ):
-                devices.append(dev["name"])
-    pa.terminate()
+    try:
+        for i in range(pa.get_host_api_count()):
+            info = pa.get_host_api_info_by_index(i)
+            if "WASAPI" in info["name"]:
+                wasapi_idx = info["index"]
+                break
+        if wasapi_idx is not None:
+            for i in range(pa.get_device_count()):
+                dev = pa.get_device_info_by_index(i)
+                if (
+                    dev["hostApi"] == wasapi_idx
+                    and dev["maxInputChannels"] > 0
+                    and not dev.get("isLoopbackDevice", False)
+                ):
+                    devices.append(dev["name"])
+    finally:
+        pa.terminate()
     return devices
 
 
 class AudioCapture:
     """Capture system audio via WASAPI loopback using pyaudiowpatch."""
 
-    def __init__(self, device=None, sample_rate=16000, chunk_duration=0.5):
+    def __init__(
+        self,
+        device: Optional[str] = None,
+        sample_rate: int = 16000,
+        chunk_duration: float = 0.5,
+    ) -> None:
         self.sample_rate = sample_rate
         self.chunk_duration = chunk_duration
-        self.audio_queue = queue.Queue(maxsize=100)
+        self.audio_queue: queue.Queue = queue.Queue(maxsize=100)
         self._stream = None
         self._running = False
         self._device_name = device
         self._pa = pyaudio.PyAudio()
-        self._read_thread = None
+        self._read_thread: Optional[threading.Thread] = None
         self._native_channels = 2
         self._native_rate = 44100
-        self._current_device_name = None
+        self._current_device_name: Optional[str] = None
         self._loopback_disabled = False
         self._lock = threading.Lock()
         self._restart_event = threading.Event()
+
         # Microphone input
-        self._mic_device_name = None
+        self._mic_device_name: Optional[str] = None
         self._mic_stream = None
         self._mic_native_rate = 44100
         self._mic_native_channels = 1
         self._mic_restart_event = threading.Event()
-        self._mic_buf = np.array([], dtype=np.float32)
-        self._resample_cache = {}
+        self._mic_chunks: collections.deque[np.ndarray] = collections.deque()
+        self._resample_cache: Dict[Tuple[int, int, int], Tuple] = {}
 
-    def _get_wasapi_info(self):
+    def _get_wasapi_info(self) -> Optional[Dict[str, Any]]:
         for i in range(self._pa.get_host_api_count()):
             info = self._pa.get_host_api_info_by_index(i)
             if "WASAPI" in info["name"]:
@@ -91,7 +104,7 @@ class AudioCapture:
         return None
 
     @staticmethod
-    def _query_current_default():
+    def _query_current_default() -> Optional[str]:
         """Create a fresh PA instance to get the actual current default device."""
         pa = pyaudio.PyAudio()
         try:
@@ -105,7 +118,7 @@ class AudioCapture:
             pa.terminate()
         return None
 
-    def _find_loopback_device(self):
+    def _find_loopback_device(self) -> Dict[str, Any]:
         """Find WASAPI loopback device for the default output."""
         wasapi_info = self._get_wasapi_info()
         if wasapi_info is None:
@@ -133,7 +146,7 @@ class AudioCapture:
 
         raise RuntimeError("No WASAPI loopback device found")
 
-    def _open_stream(self):
+    def _open_stream(self) -> None:
         """Open stream for current default loopback device."""
         loopback_dev = self._find_loopback_device()
         self._native_channels = loopback_dev["maxInputChannels"]
@@ -156,7 +169,7 @@ class AudioCapture:
             frames_per_buffer=native_chunk,
         )
 
-    def _close_stream(self):
+    def _close_stream(self) -> None:
         if self._stream:
             try:
                 self._stream.stop_stream()
@@ -165,7 +178,7 @@ class AudioCapture:
                 pass
             self._stream = None
 
-    def _find_mic_device(self):
+    def _find_mic_device(self) -> Dict[str, Any]:
         """Find WASAPI input device matching _mic_device_name, or system default."""
         wasapi_info = self._get_wasapi_info()
         if wasapi_info is None:
@@ -187,7 +200,7 @@ class AudioCapture:
                 return dev
         raise RuntimeError(f"Mic device not found: {self._mic_device_name}")
 
-    def _open_mic_stream(self):
+    def _open_mic_stream(self) -> None:
         """Open microphone input stream."""
         dev = self._find_mic_device()
         self._mic_native_channels = dev["maxInputChannels"]
@@ -205,7 +218,7 @@ class AudioCapture:
             frames_per_buffer=native_chunk,
         )
 
-    def _close_mic_stream(self):
+    def _close_mic_stream(self) -> None:
         if self._mic_stream:
             try:
                 self._mic_stream.stop_stream()
@@ -214,7 +227,7 @@ class AudioCapture:
                 pass
             self._mic_stream = None
 
-    def set_mic_device(self, device_name):
+    def set_mic_device(self, device_name: Optional[str]) -> None:
         """Change mic device at runtime. None = disabled."""
         if device_name == self._mic_device_name:
             return
@@ -223,7 +236,7 @@ class AudioCapture:
         if self._running:
             self._mic_restart_event.set()
 
-    def set_device(self, device_name):
+    def set_device(self, device_name: Optional[str]) -> None:
         """Change capture device at runtime. None = system default, '__disabled__' = off."""
         if device_name == self._device_name:
             return
@@ -233,7 +246,9 @@ class AudioCapture:
         if self._running:
             self._restart_event.set()
 
-    def _resample_to_mono(self, data, native_channels, native_rate):
+    def _resample_to_mono(
+        self, data: bytes, native_channels: int, native_rate: int
+    ) -> np.ndarray:
         """Convert raw bytes to mono float32 at self.sample_rate."""
         audio = np.frombuffer(data, dtype=np.float32)
         if native_channels == 2:
@@ -260,7 +275,7 @@ class AudioCapture:
             audio = audio[idx_floor] * w0 + audio[idx_ceil] * w1
         return audio
 
-    def _restart_stream(self):
+    def _restart_stream(self) -> None:
         """Restart stream with new default device."""
         with self._lock:
             self._close_stream()
@@ -278,7 +293,32 @@ class AudioCapture:
                 except Exception as e:
                     log.warning(f"Failed to re-open mic after restart: {e}")
 
-    def _read_loop(self):
+    def _drain_mic_samples(self, n: int) -> Tuple[np.ndarray, Optional[float]]:
+        """Drain up to n samples from the mic chunk deque without reallocating arrays."""
+        if not self._mic_chunks:
+            return np.zeros(n, dtype=np.float32), None
+
+        mic_chunk = np.zeros(n, dtype=np.float32)
+        filled = 0
+        while self._mic_chunks and filled < n:
+            head = self._mic_chunks[0]
+            need = n - filled
+            if len(head) <= need:
+                mic_chunk[filled : filled + len(head)] = head
+                filled += len(head)
+                self._mic_chunks.popleft()
+            else:
+                mic_chunk[filled : n] = head[:need]
+                self._mic_chunks[0] = head[need:]
+                filled = n
+
+        if filled == 0:
+            return mic_chunk, None
+
+        mic_rms = float(np.sqrt(np.dot(mic_chunk, mic_chunk) / n))
+        return mic_chunk, mic_rms
+
+    def _read_loop(self) -> None:
         """Synchronous read loop in a background thread."""
         last_device_check = time.monotonic()
 
@@ -303,7 +343,7 @@ class AudioCapture:
             if self._mic_restart_event.is_set():
                 self._mic_restart_event.clear()
                 self._close_mic_stream()
-                self._mic_buf = np.array([], dtype=np.float32)
+                self._mic_chunks.clear()
                 if self._mic_device_name:
                     try:
                         self._open_mic_stream()
@@ -313,7 +353,7 @@ class AudioCapture:
                 else:
                     log.info("Mic disabled")
 
-            # Auto-switch only when using system default
+            # Check default device periodically without aggressive churn
             now = time.monotonic()
             if now - last_device_check > DEVICE_CHECK_INTERVAL:
                 last_device_check = now
@@ -372,7 +412,7 @@ class AudioCapture:
                         time.sleep(1)
                     continue
 
-            # Drain all available mic data into buffer
+            # Drain all available mic data into ring buffer
             if self._mic_stream:
                 try:
                     avail = self._mic_stream.get_read_available()
@@ -383,10 +423,7 @@ class AudioCapture:
                         mic_16k = self._resample_to_mono(
                             mic_data, self._mic_native_channels, self._mic_native_rate
                         )
-                        if len(self._mic_buf) == 0:
-                            self._mic_buf = mic_16k
-                        else:
-                            self._mic_buf = np.concatenate([self._mic_buf, mic_16k])
+                        self._mic_chunks.append(mic_16k)
                 except Exception as e:
                     log.warning(f"Mic read error: {e}")
 
@@ -394,28 +431,27 @@ class AudioCapture:
                 time.sleep(0.005)
                 continue
 
-            # Mix: take matching length from mic buffer
+            # Mix mic audio if present
             audio = loopback_audio
             mic_rms = None
-            if len(self._mic_buf) > 0:
-                n = len(loopback_audio)
-                if len(self._mic_buf) >= n:
-                    mic_chunk = self._mic_buf[:n]
-                    self._mic_buf = self._mic_buf[n:]
-                else:
-                    mic_chunk = np.zeros(n, dtype=np.float32)
-                    mic_chunk[: len(self._mic_buf)] = self._mic_buf
-                    self._mic_buf = np.array([], dtype=np.float32)
-                mic_rms = float(np.sqrt(np.dot(mic_chunk, mic_chunk) / len(mic_chunk)))
-                audio = loopback_audio + mic_chunk
+            if self._mic_chunks:
+                mic_chunk, mic_rms = self._drain_mic_samples(len(loopback_audio))
+                if mic_rms is not None:
+                    audio = loopback_audio + mic_chunk
 
             try:
                 self.audio_queue.put_nowait((audio, mic_rms))
             except queue.Full:
-                self.audio_queue.get_nowait()
-                self.audio_queue.put_nowait((audio, mic_rms))
+                try:
+                    self.audio_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self.audio_queue.put_nowait((audio, mic_rms))
+                except queue.Full:
+                    pass
 
-    def start(self):
+    def start(self) -> None:
         self._loopback_disabled = self._device_name == "__disabled__"
         if not self._loopback_disabled:
             self._open_stream()
@@ -431,7 +467,7 @@ class AudioCapture:
         self._read_thread.start()
         log.info("Audio capture started")
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
         if self._read_thread:
             self._read_thread.join(timeout=3)
@@ -439,12 +475,15 @@ class AudioCapture:
         self._close_mic_stream()
         log.info("Audio capture stopped")
 
-    def get_audio(self, timeout=1.0):
+    def get_audio(self, timeout: float = 1.0) -> Optional[Tuple[np.ndarray, Optional[float]]]:
         try:
             return self.audio_queue.get(timeout=timeout)
         except queue.Empty:
             return None
 
-    def __del__(self):
-        if self._pa:
-            self._pa.terminate()
+    def __del__(self) -> None:
+        if hasattr(self, "_pa") and self._pa:
+            try:
+                self._pa.terminate()
+            except Exception:
+                pass

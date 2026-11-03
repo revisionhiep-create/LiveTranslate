@@ -605,6 +605,7 @@ class LocalQwenTranslator:
         self._last_prompt_tokens = 0
         self._last_completion_tokens = 0
         self._context_turns = 0
+        self._history = []
         self._timeout = 10
         if not lazy:
             self._ensure_loaded()
@@ -684,6 +685,18 @@ class LocalQwenTranslator:
 
     def set_context_turns(self, turns: int):
         self._context_turns = turns
+        if turns == 0:
+            self._history.clear()
+
+    def clear_history(self):
+        self._history.clear()
+
+    def _append_history(self, text: str, result: str):
+        if self._context_turns > 0 and result:
+            self._history.append((text, result))
+            max_keep = self._context_turns + 2
+            if len(self._history) > max_keep:
+                self._history = self._history[-self._context_turns:]
 
     def with_target_language(self, target_language: str) -> "LocalQwenTranslator":
         clone = LocalQwenTranslator.__new__(LocalQwenTranslator)
@@ -696,6 +709,7 @@ class LocalQwenTranslator:
         clone._last_prompt_tokens = 0
         clone._last_completion_tokens = 0
         clone._context_turns = self._context_turns
+        clone._history = list(self._history)
         clone._timeout = self._timeout
         return clone
 
@@ -708,10 +722,12 @@ class LocalQwenTranslator:
             target_lang=lang_name,
             context="",
         )
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": text},
-        ]
+        messages = [{"role": "system", "content": sys_prompt}]
+        if self._context_turns > 0 and self._history:
+            for src, tgt in self._history[-self._context_turns:]:
+                messages.append({"role": "user", "content": src})
+                messages.append({"role": "assistant", "content": tgt})
+        messages.append({"role": "user", "content": text})
         tok = LocalQwenTranslator._shared_tokenizer
         try:
             prompt_str = tok.apply_chat_template(
@@ -757,7 +773,9 @@ class LocalQwenTranslator:
 
         # Scrub any <think> tags if generated
         clean = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
-        return normalize_translation_text(clean, self._target_language)
+        normalized = normalize_translation_text(clean, self._target_language)
+        self._append_history(text, normalized)
+        return normalized
 
     def translate_iter(self, text: str, source_lang: str = "auto"):
         if not text or not text.strip():
@@ -805,3 +823,5 @@ class LocalQwenTranslator:
                 break
         gen_thread.join()
         self._last_completion_tokens = comp_count
+        if clean:
+            self._append_history(text, normalize_translation_text(clean, self._target_language))

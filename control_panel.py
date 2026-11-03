@@ -42,7 +42,6 @@ from model_manager import (
     _WHISPER_SIZES,
     dir_size,
     funasr_model_options,
-    funasr_supports_padding,
     format_size,
     get_cache_entries,
     list_local_faster_whisper_models,

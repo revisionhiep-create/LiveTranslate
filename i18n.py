@@ -10,7 +10,8 @@ _dir = Path(__file__).parent / "i18n"
 def _detect_system_lang() -> str:
     """Return 'zh' if system locale is Chinese, else 'en'."""
     try:
-        lang_code = locale.getdefaultlocale()[0] or ""
+        loc = locale.getlocale()[0]
+        lang_code = loc or ""
         if lang_code.startswith("zh"):
             return "zh"
     except Exception:

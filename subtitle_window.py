@@ -17,7 +17,6 @@ import json
 from PyQt6.QtCore import (
     Qt,
     QPoint,
-    QRect,
     pyqtSignal,
     pyqtSlot,
     pyqtProperty,
