@@ -310,9 +310,9 @@ Write-Host "   Installation complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  To start LiveTranslate:" -ForegroundColor White
-Write-Host "    Double-click start.bat" -ForegroundColor Yellow
-Write-Host "    or run: .venv\Scripts\python.exe main.py" -ForegroundColor Yellow
+Write-Host "    Double-click LiveTranslate.exe" -ForegroundColor Yellow
+Write-Host "    (or run: start.bat)" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  First launch will download ASR models (~1GB)." -ForegroundColor White
+Write-Host "  First launch will download AI models (Kotoba-Whisper & Qwen, ~4GB)." -ForegroundColor White
 Write-Host ""
-Read-Host "Press Enter to exit"
+Read-Host "Press Enter to exit (LiveTranslate will launch automatically if started via LiveTranslate.exe)"

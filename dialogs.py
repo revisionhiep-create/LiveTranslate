@@ -1,3 +1,6 @@
+import os
+
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 import json
 import logging
 import re
@@ -310,9 +313,13 @@ class SetupWizardDialog(QDialog):
 
     def _download_worker(self, hub, proxy):
         try:
+            self._log_signal.emit("=== [Step 1/3] Checking Silero VAD ===")
             download_silero(proxy=proxy)
+            self._log_signal.emit("\n=== [Step 2/3] Downloading Kotoba-Whisper v2.0 ASR model (~1.4GB) ===")
             download_asr("kotoba-whisper", hub=hub, proxy=proxy)
+            self._log_signal.emit("\n=== [Step 3/3] Downloading Qwen3.5-4B Translation model (~2.5GB) ===")
             download_local_translator("qwen3.5-4b", proxy=proxy)
+            self._log_signal.emit("\n=== Download Complete! Initializing LiveTranslate UI... ===")
         except Exception as e:
             self._error = str(e)
             log.error(f"Download failed: {e}", exc_info=True)
@@ -429,7 +436,9 @@ class ModelDownloadDialog(QDialog):
 
     def _download_worker(self):
         try:
-            for m in self._missing:
+            total = len(self._missing)
+            for idx, m in enumerate(self._missing, 1):
+                self._log_signal.emit(f"\n=== [{idx}/{total}] Downloading {m['name']} ===")
                 if m["type"] == "silero-vad":
                     download_silero(proxy=self._proxy)
                 elif m["type"] == "local-translator":

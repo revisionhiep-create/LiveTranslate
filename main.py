@@ -1,3 +1,6 @@
+import os
+
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 """
 LiveTranslate - Phase 0 Prototype
 Real-time audio translation using WASAPI loopback + faster-whisper + LLM.
@@ -1777,6 +1780,28 @@ class LiveTranslateApp:
                 break
 
 
+_app_single_instance_mutex = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Acquire a Windows named mutex to prevent multiple concurrent instances of the app."""
+    global _app_single_instance_mutex
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+
+        mutex_name = "Global\\LiveTranslate_App_SingleInstance_Mutex"
+        kernel32 = ctypes.windll.kernel32
+        _app_single_instance_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        return True
+    except Exception as e:
+        log.warning(f"Could not initialize single instance mutex: {e}")
+        return True
+
+
 def main():
     setup_logging()
     log.info("LiveTranslate starting...")
@@ -1829,6 +1854,15 @@ def main():
         app.setFont(QFont("Segoe UI", 9))
     _app_icon = create_app_icon()
     app.setWindowIcon(_app_icon)
+
+    if not _acquire_single_instance_lock():
+        log.warning("Another instance of LiveTranslate is already running.")
+        QMessageBox.information(
+            None,
+            "LiveTranslate",
+            "LiveTranslate is already running.\n\nPlease check your system tray or taskbar.",
+        )
+        sys.exit(0)
 
     # First launch → setup wizard (hub + download)
     if not SETTINGS_FILE.exists():

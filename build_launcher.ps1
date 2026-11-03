@@ -12,18 +12,59 @@ $csSource = @"
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace LiveTranslateLauncher
 {
     static class Program
     {
+        private const string AppMutexName = "Global\\LiveTranslate_App_SingleInstance_Mutex";
+        private const string LauncherMutexName = "Global\\LiveTranslate_Launcher_SingleInstance_Mutex";
+
         [STAThread]
         static int Main(string[] args)
         {
             try
             {
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                // Check if Python app is already running
+                try
+                {
+                    Mutex existingApp = Mutex.OpenExisting(AppMutexName);
+                    existingApp.Close();
+                    MessageBox.Show(
+                        "LiveTranslate is already running.\n\nPlease check your system tray or taskbar.",
+                        "LiveTranslate",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                    return 0;
+                }
+                catch (WaitHandleCannotBeOpenedException)
+                {
+                    // Not running
+                }
+                catch (Exception)
+                {
+                    // Ignore and proceed
+                }
+
+                // Prevent multiple concurrent launchers
+                bool createdLauncher;
+                using (Mutex launcherMutex = new Mutex(true, LauncherMutexName, out createdLauncher))
+                {
+                    if (!createdLauncher)
+                    {
+                        MessageBox.Show(
+                            "LiveTranslate is already running or installation is in progress.",
+                            "LiveTranslate",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information
+                        );
+                        return 0;
+                    }
+
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 Directory.SetCurrentDirectory(baseDir);
 
                 // Add WinGet links to PATH
@@ -132,6 +173,7 @@ namespace LiveTranslateLauncher
                         return proc.ExitCode;
                     }
                     return 0;
+                }
                 }
             }
             catch (Exception ex)

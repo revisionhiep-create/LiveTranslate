@@ -94,6 +94,6 @@ echo ========================================
 echo   Update complete!
 echo ========================================
 echo.
-echo Double-click start.bat to launch.
+echo Double-click LiveTranslate.exe (or start.bat) to launch.
 echo.
 pause
